@@ -19,10 +19,9 @@ ENVS="classic"
 ENV_NAME="MountainCarContinuous-v0"
 
 max_skip=10
-ensemble_size=1 
 
 if [ "$ALGO" == "UTE" ]; then
-    ensemble_size=10
+    ensemble_size=5
 fi
 
 use_lr_decay=false
@@ -50,7 +49,8 @@ n_sample=30
 max_alpha=0.1
 min_alpha=0.01 
 use_es_target=false # whether to use expected sarsa target for skip q value update, only for RARe
-
+expected_ensemble_size=1
+expected_ensemble_reduction=min
 # UTE
 use_adaptive_lambda=true # whether to use adaptive lambda for UTE, which adjusts the lambda based on the uncertainty of the value estimation
 
@@ -59,7 +59,7 @@ if [ "$ALGO" != "null" ]; then
     if [ "$ALGO" != "TAAC" ]; then
         EXTRA_ARGS+=("base_agent.algo.use_data_aug=$use_data_aug")
         EXTRA_ARGS+=("base_agent.algo.max_skip=$max_skip")
-        EXTRA_ARGS+=("base_agent.algo.ensemble_size=$ensemble_size")
+        
         EXTRA_ARGS+=("base_agent.algo.skip_buffer_size=$skip_buffer_size")
     fi
     if [ "$ALGO" == "RARe" ]; then
@@ -67,8 +67,11 @@ if [ "$ALGO" != "null" ]; then
         EXTRA_ARGS+=("base_agent.algo.max_alpha=$max_alpha")
         EXTRA_ARGS+=("base_agent.algo.min_alpha=$min_alpha")
         EXTRA_ARGS+=("base_agent.algo.use_es_target=$use_es_target")
+        EXTRA_ARGS+=("base_agent.algo.expected_ensemble_size=$expected_ensemble_size")
+        EXTRA_ARGS+=("base_agent.algo.expected_ensemble_reduction=$expected_ensemble_reduction")
     fi
     if [ "$ALGO" == "UTE" ]; then
+        EXTRA_ARGS+=("base_agent.algo.ensemble_size=$ensemble_size")
         EXTRA_ARGS+=("base_agent.algo.use_adaptive_lambda=$use_adaptive_lambda")
     fi
 
@@ -80,7 +83,7 @@ if [ "$USE_WANDB" != "false" ]; then
     EXTRA_ARGS+=("group_name=$GN")
 fi
 
-for SEED in {0..19};
+for SEED in {10..19};
 do
     ARGS=(
         "base_agent=$BASE_AGENT"

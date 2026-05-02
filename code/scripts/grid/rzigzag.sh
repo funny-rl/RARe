@@ -71,7 +71,6 @@ if [ "$ALGO" != "null" ]; then
     if [ "$ALGO" == "UTE" ]; then
         EXTRA_ARGS+=("base_agent.algo.ensemble_size=$ensemble_size")
     fi
-
 fi
 
 if [ "$USE_WANDB" != "false" ]; then
@@ -80,7 +79,7 @@ if [ "$USE_WANDB" != "false" ]; then
     EXTRA_ARGS+=("group_name=$GN")
 fi
 
-for SEED in {15..19};
+for SEED in {0..19};
 do
     ARGS=(
         "base_agent=$BASE_AGENT"
