@@ -1,0 +1,6 @@
+defaults:
+    - _self_
+    - algo: null
+
+name: MAXMINQ
+n_target: 1

@@ -1,0 +1,9 @@
+defaults:
+    - _self_
+    - algo: null
+
+name: TD3
+expl_noise: 0.1 # initial exploration noise for action, should be decayed to 0.0 for evaluation
+policy_noise_coeff: 0.2 # noise added to target policy during critic update
+noise_clip_coeff: 0.5 # range to clip target policy noise
+policy_freq: 2 # frequency of delayed policy updates

@@ -1,0 +1,4 @@
+name: TempoRL
+max_skip: 5
+skip_buffer_size: 150000
+use_data_aug: false

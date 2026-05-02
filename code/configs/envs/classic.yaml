@@ -1,0 +1,5 @@
+name: null
+domain: classic
+
+pendulum:
+  custom_reward: false

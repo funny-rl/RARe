@@ -1,0 +1,6 @@
+name: null
+domain: grid
+
+skip_mdp:
+  num_decision: 2 
+  reward_mean: 0

@@ -1,0 +1,6 @@
+name: TAAC
+
+temperature: 0.1
+target_entropy_delta: 0.05
+seq_len: 10
+skip_buffer_size: 100000

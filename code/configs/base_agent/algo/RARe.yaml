@@ -1,0 +1,12 @@
+name: RARe
+max_skip: 5
+skip_buffer_size: 30000
+n_sample: 10 # for continous control, we use n_sample action samples to estimate the target q value, which is not basic option of RARe but we find it helpful for better performance
+use_data_aug: false
+max_alpha: 0.5
+min_alpha: 0.4
+cutoff: 0.8
+use_es_target: true
+noise_clip_coeff: 1.0 # for continuous control, we clip the noise added to the target action, which is not basic option of RARe but we find it helpful for better performance
+expected_ensemble_size: 1 # for discrete control, we use expected ensemble size to calculate the target q value, which is not basic option of RARe but we find it helpful for better performance
+expected_ensemble_reduction: "min"

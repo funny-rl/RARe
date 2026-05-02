@@ -1,0 +1,4 @@
+name: null
+domain: cnr # continuous noisy rewards
+
+num_decision: 2

@@ -1,0 +1,97 @@
+#!/bin/bash
+
+cd ../../
+
+export HYDRA_FULL_ERROR=1
+
+
+ALGO=$1
+USE_WANDB=$2
+GN=$3
+
+ALGO=${ALGO:-"null"}
+USE_WANDB=${USE_WANDB:-"false"}
+
+EXTRA_ARGS=()
+
+BASE_AGENT=DDQN
+ENVS="grid"
+ENV_NAME="Field"
+
+max_skip=6
+ensemble_size=1 
+
+if [ "$ALGO" == "UTE" ]; then
+    ensemble_size=10
+fi
+
+use_lr_decay=true
+warmup_steps=1000
+total_training_steps=10000
+
+e_greedy_type=linear
+e_decay=9000
+
+traj_log_interval=100
+eval_interval=100
+num_eval_episodes=1
+
+lr=0.001
+tau=0.005
+
+hidden_dim=64
+buffer_size=10000
+skip_buffer_size=10000 
+batch_size=64
+use_data_aug=false
+
+max_alpha=0.1
+min_alpha=0.01
+use_es_target=true # whether to use expected sarsa target for skip q value update, only for RARe
+
+if [ "$ALGO" != "null" ]; then
+    EXTRA_ARGS+=("base_agent/algo=$ALGO")
+    EXTRA_ARGS+=("base_agent.algo.ensemble_size=$ensemble_size")
+    EXTRA_ARGS+=("base_agent.algo.max_skip=$max_skip")
+    EXTRA_ARGS+=("base_agent.algo.skip_buffer_size=$skip_buffer_size")
+    EXTRA_ARGS+=("base_agent.algo.use_data_aug=$use_data_aug")
+    if [ "$ALGO" == "RARe" ]; then
+        EXTRA_ARGS+=("base_agent.algo.max_alpha=$max_alpha")
+        EXTRA_ARGS+=("base_agent.algo.min_alpha=$min_alpha")
+        EXTRA_ARGS+=("base_agent.algo.use_es_target=$use_es_target")
+    fi
+
+fi
+
+if [ "$USE_WANDB" != "false" ]; then
+    GN=${GN:-"test"}
+    EXTRA_ARGS+=("use_wandb=true")
+    EXTRA_ARGS+=("group_name=$GN")
+fi
+
+
+for SEED in {0..19};
+do
+    ARGS=(
+        "base_agent=$BASE_AGENT"
+        "envs=$ENVS"
+        "seed=$SEED"
+        "envs.name=$ENV_NAME"
+        "eval_interval=$eval_interval"
+        "traj_log_interval=$traj_log_interval"
+        "num_eval_episodes=$num_eval_episodes"
+        "warmup_steps=$warmup_steps"
+        "total_training_steps=$total_training_steps"
+        "common.e_greedy_type=$e_greedy_type"
+        "common.use_lr_decay=$use_lr_decay"
+        "common.e_decay=$e_decay"
+        "common.buffer_size=$buffer_size" 
+        "common.hidden_dim=$hidden_dim"
+        "common.batch_size=$batch_size"
+        "common.lr=$lr"
+        "common.tau=$tau"
+        ${EXTRA_ARGS[@]}
+    )
+
+    python main.py "${ARGS[@]}" 
+done

@@ -1,0 +1,36 @@
+defaults:
+    - _self_
+    - base_agent: null
+    - envs: null
+
+seed: 0
+
+use_wandb: false
+group_name: null
+use_offline_wandb: false 
+
+traj_log_dir: ./logging
+traj_log_interval: 5000
+
+use_eval_render: true
+eval_render_interval: 10000
+
+warmup_steps: 1000 
+total_training_steps: 50000
+eval_interval: 500
+num_eval_episodes: 1
+
+common:
+  lr: 0.0001
+  gamma: 0.99
+  batch_size: 64
+  buffer_size: 50000
+  use_lr_decay: false
+  use_hard_update: false
+  update_interval: 1000 # use only for hard update
+  tau: 0.005 # use only for soft update
+  e_greedy_type: linear # linear | exponential
+  e_decay: 49000  # in linear, total - warmup 
+  max_epsilon: 1.0 # should be 1.0 for warmup
+  min_epsilon: 0.0
+  hidden_dim: 64

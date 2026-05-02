@@ -1,0 +1,6 @@
+defaults:
+    - _self_
+    - algo: null
+
+name: DDPG
+expl_noise: 0.1 # initial exploration noise for action, should be decayed to 0.0 for evaluation
