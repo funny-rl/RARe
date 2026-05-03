@@ -82,7 +82,7 @@ if [ "$USE_WANDB" != "false" ]; then
     EXTRA_ARGS+=("group_name=$GN")
 fi
 
-for SEED in {10..19};
+for SEED in {0..9};
 do
     ARGS=(
         "base_agent=$BASE_AGENT"

@@ -2,46 +2,39 @@
 
 cd ../../
 
-export MUJOCO_GL=egl
 export HYDRA_FULL_ERROR=1
 
+ALGO=$1
+USE_WANDB=$2
+GN=$3
 
-BASE_AGENT=$1
-ALGO=$2
-USE_WANDB=$3
-GN=$4
-
-if [ "$BASE_AGENT" != "TD3" ] && [ "$BASE_AGENT" != "DDPG" ]; then
-    echo "Invalid BASE_AGENT. Please choose TD3 or DDPG."
-    exit 1
-fi
 
 ALGO=${ALGO:-"null"}
 USE_WANDB=${USE_WANDB:-"false"}
 
 EXTRA_ARGS=()
 
-ENVS="mujoco"
-ENV_NAME="InvertedPendulum-v5"
+BASE_AGENT=DDPG
+ENVS="safe"
+ENV_NAME="SafetyPointGoal1-v0"
 
-max_skip=3
-ensemble_size=1 
+max_skip=5
 
 if [ "$ALGO" == "UTE" ]; then
-    ensemble_size=10
+    ensemble_size=5
 fi
 
-use_lr_decay=false
-warmup_steps=2000
-total_training_steps=32000
-eval_render_interval=32000
-buffer_size=32000
-skip_buffer_size=100000 
-e_greedy_type=exponential 
-e_decay=6000 # 20% of total training steps - warmup steps
+use_lr_decay=true
+warmup_steps=5000
+total_training_steps=105000
+eval_render_interval=105000
+buffer_size=105000
+skip_buffer_size=200000 
+e_greedy_type=linear
+e_decay=100000
 
-traj_log_interval=300
-eval_interval=300
+traj_log_interval=1000
+eval_interval=1000
 num_eval_episodes=5
 
 lr=0.001
@@ -52,12 +45,13 @@ batch_size=64
 use_data_aug=true
 
 # RARe
-cutoff=0.5
+cutoff=1.0
 n_sample=20
-max_alpha=0.1
+max_alpha=0.05
 min_alpha=0.0
 use_es_target=true # whether to use expected sarsa target for skip q value update, only for RARe
-
+expected_ensemble_size=1
+expected_ensemble_reduction=min
 # UTE
 use_adaptive_lambda=true # whether to use adaptive lambda for UTE, which adjusts the lambda based on the uncertainty of the value estimation
 
@@ -66,7 +60,6 @@ if [ "$ALGO" != "null" ]; then
     if [ "$ALGO" != "TAAC" ]; then
         EXTRA_ARGS+=("base_agent.algo.use_data_aug=$use_data_aug")
         EXTRA_ARGS+=("base_agent.algo.max_skip=$max_skip")
-        EXTRA_ARGS+=("base_agent.algo.ensemble_size=$ensemble_size")
         EXTRA_ARGS+=("base_agent.algo.skip_buffer_size=$skip_buffer_size")
     fi
     if [ "$ALGO" == "RARe" ]; then
@@ -75,10 +68,14 @@ if [ "$ALGO" != "null" ]; then
         EXTRA_ARGS+=("base_agent.algo.max_alpha=$max_alpha")
         EXTRA_ARGS+=("base_agent.algo.min_alpha=$min_alpha")
         EXTRA_ARGS+=("base_agent.algo.use_es_target=$use_es_target")
+        EXTRA_ARGS+=("base_agent.algo.expected_ensemble_size=$expected_ensemble_size")
+        EXTRA_ARGS+=("base_agent.algo.expected_ensemble_reduction=$expected_ensemble_reduction")
     fi
     if [ "$ALGO" == "UTE" ]; then
+        EXTRA_ARGS+=("base_agent.algo.ensemble_size=$ensemble_size")
         EXTRA_ARGS+=("base_agent.algo.use_adaptive_lambda=$use_adaptive_lambda")
     fi
+
 fi
 
 if [ "$USE_WANDB" != "false" ]; then
@@ -87,7 +84,7 @@ if [ "$USE_WANDB" != "false" ]; then
     EXTRA_ARGS+=("group_name=$GN")
 fi
 
-for SEED in {0..4};
+for SEED in {0..19};
 do
     ARGS=(
         "base_agent=$BASE_AGENT"

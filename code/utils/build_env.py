@@ -8,6 +8,7 @@ CNR = "cnr"
 CLASSIC = "classic"
 ROBOTICS = "robotics"
 MUJOCO = "mujoco"
+SAFE = "safe"
 
 class SparsePendulumWrapper(gym.RewardWrapper):
     def __init__(self, env, angle_threshold_deg=15.0):
@@ -37,6 +38,25 @@ class BottomSpawnWrapper(gym.Wrapper):
         new_thetadot = self.env.unwrapped.np_random.uniform(low=-1.0, high=1.0)
         self.env.unwrapped.state = np.array([new_theta, new_thetadot], dtype=np.float32)
         return self.env.unwrapped._get_obs(), info
+    
+class SafetyGymnasiumRewardCostWrapper(gym.Wrapper):
+    def __init__(self, env, cost_weight: float = 1.0):
+        super().__init__(env)
+        self.cost_weight = float(cost_weight)
+
+    def step(self, action):
+        out = self.env.step(action)
+        
+        if len(out) == 6:
+            obs, reward, cost, terminated, truncated, info = out
+            merged_reward = reward - self.cost_weight * cost
+
+            return obs, merged_reward, terminated, truncated, info
+
+        if len(out) == 5:
+            return out
+
+        raise ValueError(f"Unexpected safety env.step output length: {len(out)}")
 
 def build_env(envs_args, render = False):
     env_name: str = envs_args.name
@@ -105,30 +125,6 @@ def build_env(envs_args, render = False):
             env_info["is_continuous"] = True
         else:
             raise NotImplementedError(f"Robotics environment {env_name} not implemented.")
-    
-    elif env_domain == "highway":
-        import highway_env
-        import numpy as np 
-        env = gym.make(
-            env_name, 
-            config={
-                "action": {
-                    "type": "ContinuousAction"
-                },
-                "duration": 120,
-                "simulation_frequency": 10,
-                "policy_frequency": 2,
-            },
-            render_mode="rgb_array" if render else None,
-        )
-        
-        env_info = {}
-        state_dim: int = int(np.prod(env.observation_space.shape))
-        action_dim: int = env.action_space.shape[0]
-        env_info["state_dim"] = state_dim
-        env_info["action_dim"] = action_dim
-        env_info["max_action"] = env.action_space.high[0]
-        env_info["is_continuous"] = True
         
     elif env_domain == CNR:
         from utils.continuousnoisyreward import ContinuousNoisyRewards
@@ -140,6 +136,7 @@ def build_env(envs_args, render = False):
             "max_action": env.action_space.high[0],
             "is_continuous": True
         }
+
     elif env_domain == MUJOCO:
         import mujoco
         env = gym.make(
@@ -153,6 +150,20 @@ def build_env(envs_args, render = False):
         env_info["action_dim"] = action_dim
         env_info["max_action"] = env.action_space.high[0]
         env_info["is_continuous"] = True
+    
+    elif SAFE == env_domain:
+        import safety_gymnasium
+        env = safety_gymnasium.make(
+            env_name,
+            render_mode="rgb_array" if render else None,
+        )
+        env = SafetyGymnasiumRewardCostWrapper(env)
+        env_info = {
+            "state_dim": env.observation_space.shape[0],
+            "action_dim": env.action_space.shape[0],
+            "max_action": env.action_space.high[0],
+            "is_continuous": True
+        }
         
     else:
         raise NotImplementedError(f"Environment domain {env_domain} not implemented.")

@@ -143,9 +143,7 @@ def main(args):
                 env.count_decision()
             
             for _ in range(skip):
-                
-                action_t = action.numpy() if FETCH or Highway in env_name else action    
-                next_state, reward, terminated, truncated, _ = env.step(action_t)
+                next_state, reward, terminated, truncated, _ = env.step(action)
                 
                 if isinstance(reward, np.float32):
                     reward = reward.item()
@@ -328,18 +326,18 @@ def eval(
         while not done:
             state = state_transform(state)
             if is_TAAC:
-                action, _ = skip_agent.select_action(
+                action_t, _ = skip_agent.select_action(
                     state.to(device), 
                     prev_action, 
                     deterministic=True
                 )
             else:
-                action, q_values = skip_agent.select_action(
+                action_t, q_values = skip_agent.select_action(
                     state.to(device),
                     deterministic=True
                 )
             action = action_transform(
-                action,
+                action_t,
                 is_continuous = is_continuous,
             )
             skip, skip_values = skip_agent.select_skip(
@@ -348,7 +346,7 @@ def eval(
                 deterministic=True
             )
             
-            epi_eval_log["action"].append(action)
+            epi_eval_log["action"].append(action_t)
             epi_eval_log["skip"].append(skip)
             epi_eval_log["num_decisions"].append(1)
 
@@ -356,7 +354,7 @@ def eval(
                 traj_log.append({
                     "step": step,
                     "state": state.tolist(),
-                    "action": action.tolist(),
+                    "action": action_t.tolist(),
                     "q_values": q_values.tolist() if not is_TAAC else None,
                     "skip_values": skip_values.tolist() if skip_values is not None else None,
                     "skip": skip
@@ -366,8 +364,7 @@ def eval(
                 eval_env.count_decision()
                 
             for _ in range(skip):
-                action_t = action.numpy() if FETCH or Highway in env_name else action    
-                next_state, reward, terminated, truncated, _ = eval_env.step(action_t)
+                next_state, reward, terminated, truncated, _ = eval_env.step(action)
                 done = terminated or truncated
                 epi_eval_log["total_reward"].append(reward)
                 
@@ -398,7 +395,10 @@ def eval(
                     
                     for key, value in epi_eval_log.items():
                         if value is not None or isinstance(value, list) and value[0] != None:
-                            total_eval_log[key].append(np.mean(np.array(value)))
+                            try:
+                                total_eval_log[key].append(np.mean(np.array(value)))
+                            except Exception as e:
+                                breakpoint()
                         else:
                             print(f"Key {key} has None values, skipping...")
                         
@@ -419,6 +419,4 @@ def eval(
     eval_env.close()
     
 if __name__ == "__main__":    
-    FETCH = "Fetch"
-    Highway = "highway"
     main()
