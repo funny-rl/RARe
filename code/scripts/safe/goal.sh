@@ -2,6 +2,7 @@
 
 cd ../../
 
+export MUJOCO_GL=egl
 export HYDRA_FULL_ERROR=1
 
 ALGO=$1
@@ -16,9 +17,9 @@ EXTRA_ARGS=()
 
 BASE_AGENT=DDPG
 ENVS="safe"
-ENV_NAME="SafetyPointGoal1-v0"
+ENV_NAME="SafetyRacecarGoal1-v0"
 
-max_skip=5
+max_skip=3
 
 if [ "$ALGO" == "UTE" ]; then
     ensemble_size=5
@@ -26,21 +27,21 @@ fi
 
 use_lr_decay=true
 warmup_steps=5000
-total_training_steps=105000
-eval_render_interval=105000
-buffer_size=105000
-skip_buffer_size=200000 
+total_training_steps=35000
+eval_render_interval=1500
+buffer_size=35000
+skip_buffer_size=100000 
 e_greedy_type=linear
-e_decay=100000
+e_decay=30000
 
-traj_log_interval=1000
-eval_interval=1000
-num_eval_episodes=5
+traj_log_interval=300
+eval_interval=300
+num_eval_episodes=3
 
 lr=0.001
 tau=0.005
 
-hidden_dim=64
+hidden_dim=128
 batch_size=64
 use_data_aug=true
 

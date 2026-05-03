@@ -18,7 +18,7 @@ BASE_AGENT=DDPG
 ENVS="classic"
 ENV_NAME="Pendulum-v1"
 
-max_skip=5
+max_skip=2
 
 if [ "$ALGO" == "UTE" ]; then
     ensemble_size=5
