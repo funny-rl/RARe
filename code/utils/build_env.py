@@ -23,7 +23,7 @@ class SparsePendulumWrapper(gym.RewardWrapper):
             return 1.0 - abs_theta / self.angle_threshold_rad
 
         return 0.0
-    
+
 class BottomSpawnWrapper(gym.Wrapper):
     def __init__(self, env):
         super().__init__(env)
@@ -39,7 +39,7 @@ class BottomSpawnWrapper(gym.Wrapper):
         return self.env.unwrapped._get_obs(), info
     
 class SafetyGymnasiumRewardCostWrapper(gym.Wrapper):
-    def __init__(self, env, reward_weight: float = 10.0, cost_weight: float = 0.01):
+    def __init__(self, env, reward_weight: float = 10.0, cost_weight: float = 1.0):
         super().__init__(env)
         self.reward_weight = float(reward_weight)
         self.cost_weight = float(cost_weight)
