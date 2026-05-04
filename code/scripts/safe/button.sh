@@ -2,12 +2,12 @@
 
 cd ../../
 
+export MUJOCO_GL=egl
 export HYDRA_FULL_ERROR=1
 
 ALGO=$1
 USE_WANDB=$2
 GN=$3
-
 
 ALGO=${ALGO:-"null"}
 USE_WANDB=${USE_WANDB:-"false"}
@@ -15,28 +15,27 @@ USE_WANDB=${USE_WANDB:-"false"}
 EXTRA_ARGS=()
 
 BASE_AGENT=DDPG
-ENVS="classic"
-ENV_NAME="Sparse_Pendulum-v1"
+ENVS="safe"
+ENV_NAME="SafetyRacecarButton1-v0"
 
-max_skip=10
+max_skip=5
 
 if [ "$ALGO" == "UTE" ]; then
     ensemble_size=5
 fi
 
-custom_reward=true
-use_lr_decay=true
-warmup_steps=2000
-total_training_steps=22000
-eval_render_interval=22000
-buffer_size=22000
-skip_buffer_size=66000 
+use_lr_decay=false
+warmup_steps=5000
+total_training_steps=65000
+eval_render_interval=65000
+buffer_size=65000
+skip_buffer_size=120000 
 e_greedy_type=linear
-e_decay=20000
+e_decay=60000
 
-traj_log_interval=200
-eval_interval=200
-num_eval_episodes=5
+traj_log_interval=1200
+eval_interval=1200
+num_eval_episodes=1
 
 lr=0.001
 tau=0.005
@@ -48,7 +47,7 @@ use_data_aug=true
 # RARe
 cutoff=1.0
 n_sample=30
-max_alpha=0.1
+max_alpha=0.05
 min_alpha=0.01
 use_es_target=false # whether to use expected sarsa target for skip q value update, only for RARe
 expected_ensemble_size=1
@@ -85,10 +84,9 @@ if [ "$USE_WANDB" != "false" ]; then
     EXTRA_ARGS+=("group_name=$GN")
 fi
 
-for SEED in {0..19};
+for SEED in {16..19};
 do
     ARGS=(
-        "envs.pendulum.custom_reward=$custom_reward"
         "base_agent=$BASE_AGENT"
         "envs=$ENVS"
         "seed=$SEED"

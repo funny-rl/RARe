@@ -11,7 +11,7 @@ MUJOCO = "mujoco"
 SAFE = "safe"
 
 class SparsePendulumWrapper(gym.RewardWrapper):
-    def __init__(self, env, angle_threshold_deg=25.0):
+    def __init__(self, env, angle_threshold_deg=12.5): # 12.5 25
         super().__init__(env)
         self.angle_threshold_rad = np.deg2rad(angle_threshold_deg)
 
@@ -39,7 +39,7 @@ class BottomSpawnWrapper(gym.Wrapper):
         return self.env.unwrapped._get_obs(), info
     
 class SafetyGymnasiumRewardCostWrapper(gym.Wrapper):
-    def __init__(self, env, reward_weight: float = 10.0, cost_weight: float = 1.0):
+    def __init__(self, env, reward_weight: float = 10.0, cost_weight: float = 0.1):
         super().__init__(env)
         self.reward_weight = float(reward_weight)
         self.cost_weight = float(cost_weight)
