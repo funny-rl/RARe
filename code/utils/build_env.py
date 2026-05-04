@@ -39,7 +39,7 @@ class BottomSpawnWrapper(gym.Wrapper):
         return self.env.unwrapped._get_obs(), info
     
 class SafetyGymnasiumRewardCostWrapper(gym.Wrapper):
-    def __init__(self, env, reward_weight: float = 10.0, cost_weight: float = 0.1):
+    def __init__(self, env, reward_weight: float = 10.0, cost_weight: float = 0.01):
         super().__init__(env)
         self.reward_weight = float(reward_weight)
         self.cost_weight = float(cost_weight)
@@ -49,8 +49,7 @@ class SafetyGymnasiumRewardCostWrapper(gym.Wrapper):
         
         if len(out) == 6:
             obs, reward, cost, terminated, truncated, info = out
-            # merged_reward = self.reward_weight * reward - self.cost_weight * cost
-            merged_reward = reward
+            merged_reward = self.reward_weight * reward - self.cost_weight * cost
             return obs, merged_reward, terminated, truncated, info
         else:
 
