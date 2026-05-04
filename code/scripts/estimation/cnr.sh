@@ -4,30 +4,23 @@ cd ../../
 
 export HYDRA_FULL_ERROR=1
 
-BASE_AGENT=$1
-ALGO=$2
-USE_WANDB=$3
-GN=$4
-
-if [ "$BASE_AGENT" != "TD3" ] && [ "$BASE_AGENT" != "DDPG" ]; then
-    echo "Invalid BASE_AGENT. Please choose TD3 or DDPG."
-    exit 1
-fi
+ALGO=$1
+USE_WANDB=$2
+GN=$3
 
 ALGO=${ALGO:-"null"}
 USE_WANDB=${USE_WANDB:-"false"}
 
 EXTRA_ARGS=()
 
+BASE_AGENT=DDPG
 ENVS="cnr" # continuous noisy rewards
 ENV_NAME="ContinuosNoisyRewards"
 
 max_skip=3
-num_decision=64
-ensemble_size=1
 
 if [ "$ALGO" == "UTE" ]; then
-    ensemble_size=10
+    ensemble_size=5
 fi
 
 use_lr_decay=true
@@ -51,6 +44,8 @@ tau=0.005
 hidden_dim=32
 batch_size=64
 use_data_aug=false
+
+num_decision=8
 
 cutoff=1.0
 n_sample=30

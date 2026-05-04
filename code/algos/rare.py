@@ -10,7 +10,7 @@ from jaxtyping import Float
 from algos.buffers.skip_buffer import SkipBuffer
 
 from .maxminq import QNet as Expected_SARSA
-# from .DDPG import Critic as Expected_Critic
+from .ddpg import Critic as Expected_Critic
 
 
 """
@@ -25,19 +25,6 @@ Typing notations:
 
 
 class Skip_ExpectedQ(nn.Module):
-    """
-    Single skip-value network for RARe.
-
-    Input:
-        state  : [B, state_dim]
-        action : [B] or [B, 1] for discrete actions
-                 [B, action_dim] for continuous actions
-
-    Output:
-        skip_values : [B, max_skip]
-
-    skip_values[:, j - 1] corresponds to Q_J(s, a, j).
-    """
 
     def __init__(
         self,
@@ -68,10 +55,6 @@ class Skip_ExpectedQ(nn.Module):
         state: torch.Tensor,
         action: torch.Tensor,
     ) -> torch.Tensor:
-        """
-        Returns:
-            skip_values: [B, max_skip]
-        """
 
         if not self.is_continuous:
             if action.dim() == 1:
@@ -101,21 +84,6 @@ class Skip_ExpectedQ(nn.Module):
 
 
 class ExpectedSARSAEnsemble(nn.Module):
-    """
-    Ensemble for discrete Expected-Q / Expected-SARSA target.
-
-    Each member outputs:
-        Q_k(s, .): [B, n_actions]
-
-    reduction="none":
-        returns [K, B, A]
-
-    reduction="mean":
-        returns mean_k Q_k(s, .): [B, A]
-
-    reduction="min":
-        returns min_k Q_k(s, .): [B, A]
-    """
 
     def __init__(
         self,
@@ -163,22 +131,6 @@ class ExpectedSARSAEnsemble(nn.Module):
 
 
 class ExpectedCriticEnsemble(nn.Module):
-    """
-    Ensemble for continuous Expected-Q critic.
-
-    Each member outputs:
-        Q_k(s, a): [B, 1]
-
-    reduction="none":
-        returns [K, B, 1]
-
-    reduction="mean":
-        returns mean_k Q_k(s, a): [B, 1]
-
-    reduction="min":
-        returns min_k Q_k(s, a): [B, 1]
-    """
-
     def __init__(
         self,
         state_dim: int,
@@ -238,7 +190,6 @@ class RARe:
         min_alpha: float,
         cutoff: float,
         use_es_target: bool,
-        noise_clip_coeff: float,
         expected_ensemble_size: int = 1,
         expected_ensemble_reduction: str = "min",
     ):
@@ -297,16 +248,7 @@ class RARe:
             self.max_sigma_eps = self.max_alpha
             self.min_sigma_eps = self.min_alpha
             self.sigma_eps = self.max_sigma_eps
-            self.noise_clip_coeff = noise_clip_coeff
 
-        # ------------------------------------------------------------
-        # Single skip-value network.
-        #
-        # Important:
-        #   skip_actor is NOT ensembled.
-        #   Only the auxiliary Expected-Q target network is ensembled
-        #   when use_es_target=True.
-        # ------------------------------------------------------------
         self.skip_actor = Skip_ExpectedQ(
             state_dim=self.state_dim,
             action_dim=self.action_dim,
@@ -416,19 +358,6 @@ class RARe:
         action,
         deterministic: bool = False,
     ):
-        """
-        Epsilon-greedy skip selection.
-
-        Greedy:
-            j* = argmax_j Q_J(s, a, j)
-
-        Random:
-            j ~ Uniform({1, ..., max_skip})
-
-        Note:
-            skip_actor is a single network. Expected-Q ensemble is used
-            only for target construction when use_es_target=True.
-        """
 
         if deterministic or torch.rand(1).item() > self.skip_epsilon:
             with torch.no_grad():
@@ -544,13 +473,6 @@ class RARe:
         self,
         training_rate: float,
     ):
-        """
-        Decay alpha over training.
-
-        alpha controls the mixture between greedy max-Q and
-        arithmetic-mean expected-Q for discrete expected targets
-        when use_es_target=False.
-        """
 
         self.alpha = self.max_alpha - training_rate * (
             self.max_alpha - self.min_alpha
@@ -565,17 +487,7 @@ class RARe:
         self,
         training_rate: float,
     ):
-        """
-        Decay sarsa_eps over training.
-
-        sarsa_eps controls the mixture in the discrete Expected-Q
-        auxiliary target when use_es_target=True:
-
-            V_ES(s') =
-                (1 - sarsa_eps) * Q_ES^-(s', a*)
-                + sarsa_eps * mean_a Q_ES^-(s', a)
-        """
-
+        
         progress = min(
             max(training_rate / self.cutoff, 0.0),
             1.0,
@@ -680,8 +592,6 @@ class RARe:
         ) = self.skip_replay_buffer.sample(self.batch_size)
 
         skip_idx = skips.long() - 1
-        if skip_idx.dim() == 1:
-            skip_idx = skip_idx.unsqueeze(-1)
 
         with torch.no_grad():
             if self.use_es_target:
@@ -705,8 +615,6 @@ class RARe:
                         next_skip_states,
                     )
 
-                    self.noise_clip = self.noise_clip_coeff * self.sigma_eps
-
                     noises = torch.randn(
                         self.n_sample,
                         next_actions.shape[0],
@@ -717,10 +625,7 @@ class RARe:
 
                     sampled_next_actions = (
                         next_actions.unsqueeze(0)
-                        + noises.clip(
-                            -self.noise_clip,
-                            self.noise_clip,
-                        )
+                        + noises
                     ).clamp(
                         -self.max_action,
                         self.max_action,
@@ -751,10 +656,29 @@ class RARe:
                     ).mean(dim=0)
 
                 else:
-                    raise NotImplementedError(
-                        "Expected target without es target is not implemented "
-                        "for discrete action space."
+                    next_actions = self.base_agent.actor(
+                        next_skip_states,
+                    ).argmax(
+                    dim=-1,
+                    keepdim=True,
                     )
+                    next_q_values = self.base_agent.target_actor(
+                        next_skip_states,
+                    )
+                    
+                    max_q_values: Float[Tensor, "B 1"] = next_q_values.gather(
+                        dim=-1,
+                        index=next_actions,
+                    )
+                    
+                    am_q_values: Float[Tensor, "B 1"] = next_q_values.mean(
+                        dim=-1,
+                        keepdim=True,
+                    )
+                    
+                    expected_values  = (1 - self.alpha) * max_q_values + self.alpha * am_q_values
+                    
+                    
 
             target_skip_values: Float[Tensor, "B 1"] = (
                 rewards
@@ -799,19 +723,6 @@ class RARe:
         training_rate: float,
         log_dict: dict,
     ):
-        """
-        Train the discrete Expected-SARSA ensemble.
-
-        Ensemble usage:
-            - action selection uses the online reduced ensemble
-            - action evaluation uses the target reduced ensemble
-            - all ensemble members are trained toward the same
-              reduced-ensemble target
-
-        reduction:
-            "min"  -> pessimistic Expected-Q target
-            "mean" -> averaged Expected-Q target
-        """
 
         (
             states,
@@ -919,21 +830,6 @@ class RARe:
         critic,
         sigma: float,
     ):
-        """
-        Continuous expected value with an expected-critic ensemble.
-
-        Ensemble reduction is controlled by:
-            self.expected_ensemble_reduction in {"min", "mean"}
-
-        expected_values:
-            E_{a' ~ N(mu^-(s'), sigma^2)}
-            [ Q_reduced(s', a') ]
-
-        where:
-            Q_reduced = min_k Q_k    if reduction == "min"
-            Q_reduced = mean_k Q_k   if reduction == "mean"
-        """
-
         with torch.no_grad():
             next_actions = self.base_agent.target_actor(next_states)
 
@@ -967,14 +863,12 @@ class RARe:
                 flat_sampled_actions,
                 reduction=self.expected_ensemble_reduction,
             )
-            # [S * B, 1]
 
             expected_values = q_values.view(
                 S,
                 B,
                 -1,
             ).mean(dim=0)
-            # [B, 1]
 
         return expected_values
 
@@ -999,20 +893,6 @@ class RARe:
         training_rate: float,
         log_dict: dict,
     ):
-        """
-        Train the continuous Expected-Critic ensemble.
-
-        Target:
-            y = r + gamma * E_{a' ~ N(mu^-(s'), sigma^2)}
-                        [ Q_reduced^-(s', a') ]
-
-        where:
-            Q_reduced = min_k Q_k    if reduction == "min"
-            Q_reduced = mean_k Q_k   if reduction == "mean"
-
-        All ensemble members are trained toward the same
-        reduced-ensemble target.
-        """
 
         self.sigma_update(training_rate)
 

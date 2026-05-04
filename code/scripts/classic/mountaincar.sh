@@ -47,7 +47,7 @@ use_data_aug=true
 # RARe
 n_sample=30
 max_alpha=0.1
-min_alpha=0.01 
+min_alpha=0.001
 use_es_target=false # whether to use expected sarsa target for skip q value update, only for RARe
 expected_ensemble_size=1
 expected_ensemble_reduction=min

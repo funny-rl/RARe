@@ -11,19 +11,18 @@ MUJOCO = "mujoco"
 SAFE = "safe"
 
 class SparsePendulumWrapper(gym.RewardWrapper):
-    def __init__(self, env, angle_threshold_deg=15.0):
+    def __init__(self, env, angle_threshold_deg=25.0):
         super().__init__(env)
         self.angle_threshold_rad = np.deg2rad(angle_threshold_deg)
-        
+
     def reward(self, _unused_reward):
         theta, _ = self.env.unwrapped.state
         theta = ((theta + np.pi) % (2 * np.pi)) - np.pi
         abs_theta = abs(theta)
         if abs_theta < self.angle_threshold_rad:
-            _reward = 0.0
-        else:
-            _reward = -1.0
-        return _reward
+            return 1.0 - abs_theta / self.angle_threshold_rad
+
+        return 0.0
     
 class BottomSpawnWrapper(gym.Wrapper):
     def __init__(self, env):
@@ -50,14 +49,12 @@ class SafetyGymnasiumRewardCostWrapper(gym.Wrapper):
         
         if len(out) == 6:
             obs, reward, cost, terminated, truncated, info = out
-            merged_reward = self.reward_weight * reward - self.cost_weight * cost
-
+            # merged_reward = self.reward_weight * reward - self.cost_weight * cost
+            merged_reward = reward
             return obs, merged_reward, terminated, truncated, info
+        else:
 
-        if len(out) == 5:
-            return out
-
-        raise ValueError(f"Unexpected safety env.step output length: {len(out)}")
+            raise ValueError(f"Unexpected safety env.step output length: {len(out)}")
 
 def build_env(envs_args, render = False):
     env_name: str = envs_args.name

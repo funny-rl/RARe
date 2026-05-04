@@ -19,36 +19,36 @@ BASE_AGENT=DDPG
 ENVS="safe"
 ENV_NAME="SafetyRacecarGoal1-v0"
 
-max_skip=3
+max_skip=5
 
 if [ "$ALGO" == "UTE" ]; then
     ensemble_size=5
 fi
 
-use_lr_decay=true
-warmup_steps=5000
-total_training_steps=35000
-eval_render_interval=1500
-buffer_size=35000
+use_lr_decay=false
+warmup_steps=2000
+total_training_steps=52000
+eval_render_interval=52000
+buffer_size=52000
 skip_buffer_size=100000 
 e_greedy_type=linear
-e_decay=30000
+e_decay=50000
 
-traj_log_interval=300
-eval_interval=300
-num_eval_episodes=3
+traj_log_interval=1000
+eval_interval=1000
+num_eval_episodes=1
 
 lr=0.001
 tau=0.005
 
-hidden_dim=128
+hidden_dim=64
 batch_size=64
 use_data_aug=true
 
 # RARe
 cutoff=1.0
 n_sample=20
-max_alpha=0.05
+max_alpha=1.0
 min_alpha=0.0
 use_es_target=true # whether to use expected sarsa target for skip q value update, only for RARe
 expected_ensemble_size=1
@@ -85,7 +85,7 @@ if [ "$USE_WANDB" != "false" ]; then
     EXTRA_ARGS+=("group_name=$GN")
 fi
 
-for SEED in {0..19};
+for SEED in 9;
 do
     ARGS=(
         "base_agent=$BASE_AGENT"

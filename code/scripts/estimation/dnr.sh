@@ -46,14 +46,13 @@ hidden_dim=64
 batch_size=64
 use_data_aug=false
 
-num_decision=8
-n_target=1
-
+num_decision=8 # 4
+n_target=1 # 1
 
 cutoff=1.0
 max_alpha=1.0
 min_alpha=0.0
-use_es_target=true # whether to use expected sarsa target for skip q value update, only for RARe
+use_es_target=false
 expected_ensemble_size=1 
 expected_ensemble_reduction=min
 
@@ -82,7 +81,7 @@ if [ "$USE_WANDB" != "false" ]; then
     EXTRA_ARGS+=("group_name=$GN")
 fi
 
-for SEED in {10..19};
+for SEED in {0..19};
 do
     ARGS=(
         "base_agent=$BASE_AGENT"
@@ -107,6 +106,5 @@ do
         "common.tau=$tau"
         ${EXTRA_ARGS[@]}
     )
-
     python main.py "${ARGS[@]}" 
 done

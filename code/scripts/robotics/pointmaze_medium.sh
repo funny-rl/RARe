@@ -45,10 +45,11 @@ hidden_dim=128
 batch_size=64
 use_data_aug=true
 
+cutoff=0.8
 n_sample=30
 max_alpha=0.1
-min_alpha=0.01
-use_es_target=true # whether to use expected sarsa target for skip q value update, only for RARe
+min_alpha=0.001
+use_es_target=false # whether to use expected sarsa target for skip q value update, only for RARe
 expected_ensemble_size=1
 expected_ensemble_reduction=min
 
@@ -63,6 +64,7 @@ if [ "$ALGO" != "null" ]; then
         EXTRA_ARGS+=("base_agent.algo.skip_buffer_size=$skip_buffer_size")
     fi
     if [ "$ALGO" == "RARe" ]; then
+        EXTRA_ARGS+=("base_agent.algo.cutoff=$cutoff")
         EXTRA_ARGS+=("base_agent.algo.n_sample=$n_sample")
         EXTRA_ARGS+=("base_agent.algo.max_alpha=$max_alpha")
         EXTRA_ARGS+=("base_agent.algo.min_alpha=$min_alpha")
@@ -82,7 +84,7 @@ if [ "$USE_WANDB" != "false" ]; then
     EXTRA_ARGS+=("group_name=$GN")
 fi
 
-for SEED in {0..9};
+for SEED in {0..19};
 do
     ARGS=(
         "base_agent=$BASE_AGENT"

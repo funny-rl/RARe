@@ -14,32 +14,12 @@ def set_hyperparams(
             "n_target": n_target,
             "device": device,
         }
-    elif base_name == "ExpectedSARSA":
-        base_config = {
-            **env_info,
-            **common_args, 
-            "device": device
-        }
     elif base_name == "DDPG":
         expl_noise = base_args.expl_noise
         base_config = {
             **env_info,
             **common_args, 
             "expl_noise": expl_noise,
-            "device": device
-        }
-    elif base_name == "TD3":
-        expl_noise = base_args.expl_noise
-        policy_noise_coeff = base_args.policy_noise_coeff
-        noise_clip_coeff = base_args.noise_clip_coeff
-        policy_freq = base_args.policy_freq
-        base_config = {
-            **env_info,
-            **common_args, 
-            "expl_noise": expl_noise,
-            "policy_noise_coeff": policy_noise_coeff,
-            "noise_clip_coeff": noise_clip_coeff,
-            "policy_freq": policy_freq,
             "device": device
         }
     else:
