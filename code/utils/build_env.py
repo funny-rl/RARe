@@ -160,6 +160,8 @@ def build_env(envs_args, render = False):
             cost_weight = envs_args.button.cost_weight
         elif "Push" in env_name:
             cost_weight = envs_args.push.cost_weight
+        elif "Circle" in env_name:
+            cost_weight = envs_args.circle.cost_weight
         else:
             raise NotImplementedError(f"Safety environment {env_name} not supported.")
         env = SafetyGymnasiumRewardCostWrapper(env, cost_weight=cost_weight)

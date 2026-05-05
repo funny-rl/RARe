@@ -9,3 +9,6 @@ button:
 
 push:
   cost_weight: 0.0025
+
+circle:
+  cost_weight: 0.2
