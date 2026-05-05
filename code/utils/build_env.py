@@ -154,7 +154,15 @@ def build_env(envs_args, render = False):
             env_name,
             render_mode="rgb_array" if render else None,
         )
-        env = SafetyGymnasiumRewardCostWrapper(env)
+        if "Goal" in env_name:
+            cost_weight = envs_args.goal.cost_weight
+        elif "Button" in env_name:
+            cost_weight = envs_args.button.cost_weight
+        elif "Push" in env_name:
+            cost_weight = envs_args.push.cost_weight
+        else:
+            raise NotImplementedError(f"Safety environment {env_name} not supported.")
+        env = SafetyGymnasiumRewardCostWrapper(env, cost_weight=cost_weight)
         env_info = {
             "state_dim": env.observation_space.shape[0],
             "action_dim": env.action_space.shape[0],

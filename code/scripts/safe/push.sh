@@ -16,7 +16,7 @@ EXTRA_ARGS=()
 
 BASE_AGENT=DDPG
 ENVS="safe"
-ENV_NAME="SafetyRacecarButton1-v0"
+ENV_NAME="SafetyRacecarPush1-v0"
 
 max_skip=5
 
@@ -84,7 +84,7 @@ if [ "$USE_WANDB" != "false" ]; then
     EXTRA_ARGS+=("group_name=$GN")
 fi
 
-for SEED in {0..9};
+for SEED in {5..9};
 do
     ARGS=(
         "base_agent=$BASE_AGENT"

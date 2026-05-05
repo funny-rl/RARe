@@ -1,2 +1,11 @@
 name: null
 domain: safe
+
+goal:
+  cost_weight: 0.1 
+
+button:
+  cost_weight: 0.05
+
+push:
+  cost_weight: 0.05
