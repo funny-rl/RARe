@@ -26,15 +26,15 @@ fi
 
 use_lr_decay=false
 warmup_steps=5000
-total_training_steps=65000
-eval_render_interval=65000
-buffer_size=65000
+total_training_steps=85000
+eval_render_interval=85000
+buffer_size=85000
 skip_buffer_size=120000 
 e_greedy_type=linear
-e_decay=60000
+e_decay=80000
 
-traj_log_interval=1200
-eval_interval=1200
+traj_log_interval=1600
+eval_interval=1600
 num_eval_episodes=1
 
 lr=0.001
@@ -84,7 +84,7 @@ if [ "$USE_WANDB" != "false" ]; then
     EXTRA_ARGS+=("group_name=$GN")
 fi
 
-for SEED in {5..9};
+for SEED in {10..14};
 do
     ARGS=(
         "base_agent=$BASE_AGENT"

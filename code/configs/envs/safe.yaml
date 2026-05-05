@@ -8,4 +8,4 @@ button:
   cost_weight: 0.05
 
 push:
-  cost_weight: 0.05
+  cost_weight: 0.0025
