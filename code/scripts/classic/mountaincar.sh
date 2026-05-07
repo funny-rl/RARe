@@ -48,7 +48,7 @@ use_data_aug=true
 n_sample=30
 max_alpha=0.1
 min_alpha=0.001
-use_es_target=false # whether to use expected sarsa target for skip q value update, only for RARe
+use_es_target=true # whether to use expected sarsa target for skip q value update, only for RARe
 expected_ensemble_size=1
 expected_ensemble_reduction=min
 # UTE
@@ -83,7 +83,7 @@ if [ "$USE_WANDB" != "false" ]; then
     EXTRA_ARGS+=("group_name=$GN")
 fi
 
-for SEED in {0..19};
+for SEED in 0;
 do
     ARGS=(
         "base_agent=$BASE_AGENT"

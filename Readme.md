@@ -1,25 +1,62 @@
+# Risk-aware Action Repetition (RARe)
 
-## Question
+This repository contains the official code for the paper **"Risk-aware Action Repetition Learning"**.
 
-0. on-policy와 off-policy의 재정의: 정책은 같은데 거기에 대해 \max, expectation을 취하면 target이 달라 off-policy가 되는 것인가? 아님 이 두 가지는 같은 정책의 행동 확률을 공유하므로 on-policy인가. 
+It includes the implementation of the RARe algorithm and several baselines (TempoRL, UTE, TAAC, etc.) evaluated across diverse domains (Classic Control, Grid Worlds, Robotics, and Safe RL).
 
-1. In hazardous domains such as CliffWalking, frequent decision points increase the34 likelihood of catastrophic failure. Notably, this vulnerability persists not only under stochastic training conditions but also during evaluation, particularly when the learned greedy action is sub-optimal.
+## Repository Structure
 
-이렇게 표현해도 괜찮을까?
+- `code/algos/`: Implementations of RARe and other baselines.
+- `code/scripts/`: Bash scripts to run experiments across multiple domains.
+- `code/configs/`: Configuration files used for training scenarios.
+- `analysis/`: Scripts for evaluating models and generating figures.
 
-2. Background의 수식 1, 2번에서 상태전이확률을 결정론적으로 표현하는 것 같은데 맞을까? 그럼 MDP의 상태전이확률 함술를 확률 분포가 아닌 카르테시안 곱으로 표현해야 할까. 
+## Usage
 
-3. Background에서 수식 2번에 Reward 함수에 expectation을 넣는 게 맞을까. 
+To train the agents, you can run the provided execution scripts located inside the `code/scripts/` folder. The experiments are organized by domain categories. The general syntax for running a script is:
 
-4. Overestimation bias 그림 2개 버전으로 넣을까요 4개 버전으로 넣을까요.
+```bash
+cd code/scripts/<domain>/
+bash <script_name>.sh [ALGO] [USE_WANDB] [Grop Name]
+```
 
-5. 수렴성 증명 내용을 넣어야 할까. 
+### Parameters
+- **`ALGO`**: The algorithm to run. Examples include `RARe`, `TempoRL`, `UTE`, `TAAC`, or `null` (for the base agent such as `MAXMINQ` or `DDPG`).
+- **`USE_WANDB`**: Set to `true` to log training with Weights & Biases, otherwise `false`.
+- **`GROUP_NAME`**: The Weights & Biases group name used to organize related runs, such as different seeds or variants of the same experiment.
 
-6. Overestimation 실험에서 (\max, base agent)의 편향을 각각 나눠서 분석하는 법: 지금은 그냥 합쳐서 보여줌. 
+### Available Domains
 
+Below are the bash scripts grouped by domain:
 
+- **Grid Worlds (`code/scripts/grid/`)**
+  - `bridge.sh`, `cliff.sh`, `field.sh`, `rzigzag.sh`, `zigzag.sh`
+- **Classic Control (`code/scripts/classic/`)**
+  - `mountaincar.sh`, `pendulum.sh`, `sparse_pendulum.sh`
+- **Robotics (`code/scripts/robotics/`)**
+  - `pointmaze_medium.sh`
+- **Safe RL (`code/scripts/safe/`)**
+  - `button.sh`, `circle.sh`, `goal.sh`
+- **Reward Estimation (`code/scripts/estimation/`)**
+  - `cnr.sh`, `dnr.sh`
 
-## ablation:
-1. 샘플링 수가 줄어들 때마다 성능이 낮아지는가?
+### Example Execution
 
-2. \max operator와 action policy 각각으로부터 bias가 발생하는가? 후자는 확인 완료, 전자는 내 생각엔 RARe와 TempoRL의 skip value function을 학습하기 위한 TD-Target을 가우시안 랜덤 노이즈로 만들어 실험하기. 
+To train **RARe** on the benchmark **Mountain Car** locally on GPU **0** and log to Weights & Biases:
+
+```bash
+cd code/scripts/classic/
+bash mountaincar.sh RARe true "Group name"
+```
+
+## License
+
+This anonymized supplementary code is released under the MIT License for review and reproducibility purposes. See the `LICENSE` file for details.
+
+## Third-party assets
+
+This repository uses or builds upon open-source packages, benchmark environments, and baseline implementations. We cite the corresponding papers in the manuscript and acknowledge the original creators and maintainers of these assets.
+
+For transparency, we provide a `licenses/` directory containing license files or license notes for the third-party assets used in this work. These third-party assets remain subject to their original licenses, copyright notices, and terms of use.
+
+We use all third-party assets solely for research and reproducibility purposes, and we respect their original licenses and terms of use. Please refer to the original repositories for the most up-to-date license information.

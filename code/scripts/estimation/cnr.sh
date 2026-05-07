@@ -17,7 +17,7 @@ BASE_AGENT=DDPG
 ENVS="cnr" # continuous noisy rewards
 ENV_NAME="ContinuosNoisyRewards"
 
-max_skip=3
+max_skip=5
 
 if [ "$ALGO" == "UTE" ]; then
     ensemble_size=5
@@ -27,15 +27,15 @@ use_lr_decay=true
 use_eval_render=false
 
 warmup_steps=10000
-total_training_steps=40000
-buffer_size=40000
-skip_buffer_size=40000 
+total_training_steps=30000
+buffer_size=1000000
+skip_buffer_size=30000 
 
 e_greedy_type=linear
-e_decay=30000
+e_decay=20000
 
-traj_log_interval=300
-eval_interval=300
+traj_log_interval=400
+eval_interval=400
 num_eval_episodes=1
 
 lr=0.001
@@ -49,13 +49,14 @@ num_decision=8
 
 cutoff=1.0
 n_sample=30
-max_alpha=2.0
-min_alpha=1.0
+max_alpha=1.0
+min_alpha=0.1
 use_es_target=false # whether to use expected sarsa target for skip q value update, only for RARe
+expected_ensemble_size=1 
+expected_ensemble_reduction=min
 
 if [ "$ALGO" != "null" ]; then
     EXTRA_ARGS+=("base_agent/algo=$ALGO")
-    EXTRA_ARGS+=("base_agent.algo.ensemble_size=$ensemble_size")
     EXTRA_ARGS+=("base_agent.algo.max_skip=$max_skip")
     EXTRA_ARGS+=("base_agent.algo.skip_buffer_size=$skip_buffer_size")
     EXTRA_ARGS+=("base_agent.algo.use_data_aug=$use_data_aug")
@@ -64,6 +65,11 @@ if [ "$ALGO" != "null" ]; then
         EXTRA_ARGS+=("base_agent.algo.max_alpha=$max_alpha")
         EXTRA_ARGS+=("base_agent.algo.min_alpha=$min_alpha")
         EXTRA_ARGS+=("base_agent.algo.use_es_target=$use_es_target")
+        EXTRA_ARGS+=("base_agent.algo.expected_ensemble_size=$expected_ensemble_size")
+        EXTRA_ARGS+=("base_agent.algo.expected_ensemble_reduction=$expected_ensemble_reduction")
+    fi
+    if [ "$ALGO" == "UTE" ]; then
+        EXTRA_ARGS+=("base_agent.algo.ensemble_size=$ensemble_size")
     fi
 fi
 
@@ -73,7 +79,7 @@ if [ "$USE_WANDB" != "false" ]; then
     EXTRA_ARGS+=("group_name=$GN")
 fi
 
-for SEED in {16..19};
+for SEED in {10..19};
 do
     ARGS=(
         "base_agent=$BASE_AGENT"

@@ -102,7 +102,11 @@ class TAAC:
             self.action_dim,
             self.hidden_dim,
         ).to(self.device)
-        
+        self.num_actor_parameters = sum(p.numel() for p in self.actor.parameters() if p.requires_grad)
+        self.num_critic_parameters = sum(p.numel() for p in self.critic.parameters() if p.requires_grad)
+        print(f"[{self.__class__.__name__}] Number of actor parameters: {self.num_actor_parameters}")
+        print(f"[{self.__class__.__name__}] Number of critic parameters: {self.num_critic_parameters}")
+        print(f"[{self.__class__.__name__}] Number of log_temperature parameters: {self.log_temperature.numel()}")
         self.actor_optimizer = torch.optim.Adam(
             self.actor.parameters(), 
             lr=self.lr

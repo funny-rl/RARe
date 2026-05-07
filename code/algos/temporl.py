@@ -309,31 +309,10 @@ class TempoRL:
             not_dones,
         ) = self.skip_replay_buffer.sample(self.batch_size)
 
-        # Expected shapes:
-        #   skips    : [B, 1] or [B]
-        #   skip_idx : [B, 1]
         skip_idx = skips.long() - 1
         if skip_idx.dim() == 1:
             skip_idx = skip_idx.unsqueeze(-1)
 
-        # ------------------------------------------------------------
-        # Skip target:
-        #
-        #   y_J = R_{t:t+j}
-        #         + gamma^j * Q_base^-(s_{t+j}, a*)
-        #
-        # Discrete base agent:
-        #   a* = argmax_a Q_base(s_{t+j}, a)
-        #   Q_base^-(s_{t+j}, a*) is evaluated by target_actor.
-        #
-        # If base_agent is Double-style MAXMINQ:
-        #   base_agent.actor(next_skip_states) returns min_i Q_i(s, a)
-        #   base_agent.target_actor(next_skip_states) returns min_i Q_i^-(s, a)
-        #
-        # Therefore the discrete target becomes:
-        #   a* = argmax_a min_i Q_i(s_{t+j}, a)
-        #   y_J = R + gamma^j * min_i Q_i^-(s_{t+j}, a*)
-        # ------------------------------------------------------------
         with torch.no_grad():
             if self.is_continuous:
                 next_actions = self.base_agent.target_actor(
@@ -366,11 +345,6 @@ class TempoRL:
             )
             # [B, 1]
 
-        # ------------------------------------------------------------
-        # Current skip-value prediction:
-        #
-        #   Q_J(s, a, j)
-        # ------------------------------------------------------------
         skip_values: Float[Tensor, "bs skip_dim"] = self.skip_actor(
             skip_states,
             actions,

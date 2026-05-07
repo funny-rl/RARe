@@ -48,7 +48,7 @@ n_target=1
 cutoff=1.0
 max_alpha=0.1
 min_alpha=0.01
-use_es_target=true # whether to use expected sarsa target for skip q value update, only for RARe
+use_es_target=false # whether to use expected sarsa target for skip q value update, only for RARe
 expected_ensemble_size=1
 expected_ensemble_reduction=min
 

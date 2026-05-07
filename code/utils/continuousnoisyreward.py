@@ -14,7 +14,8 @@ class ContinuousNoisyRewards(gym.Env):
         reward_mean: float = 0.0,
         reward_std: float = 1.0,
         random_state: bool = False,
-        state_bound: float = 10.0
+        state_bound: float = 10.0,
+        start_noise_std: float = 0.05,   
     ):
         super().__init__()
 
@@ -29,11 +30,12 @@ class ContinuousNoisyRewards(gym.Env):
         self.reward_mean = reward_mean
         self.reward_std = reward_std
         self.random_state = random_state
-        
+
         self.state_bound = state_bound
         self.state_low = -self.state_bound
         self.state_high = self.state_bound
-        
+        self.start_noise_std = start_noise_std  
+
         self.observation_space = spaces.Box(
             low=self.state_low,
             high=self.state_high,
@@ -62,7 +64,19 @@ class ContinuousNoisyRewards(gym.Env):
                 size=(self.state_dim,),
             ).astype(np.float32)
         else:
-            self.curr_state = np.zeros(self.state_dim, dtype=np.float32)
+            base_state = np.zeros(self.state_dim, dtype=np.float32)
+
+            start_noise = self.np_random.normal(
+                loc=0.0,
+                scale=self.start_noise_std,
+                size=(self.state_dim,),
+            ).astype(np.float32)
+
+            self.curr_state = np.clip(
+                base_state + start_noise,
+                self.state_low,
+                self.state_high,
+            ).astype(np.float32)
 
         return self.curr_state.copy(), {}
 

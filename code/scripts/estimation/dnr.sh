@@ -18,7 +18,7 @@ BASE_AGENT="MAXMINQ"
 ENVS="grid" 
 ENV_NAME="DiscreteNoisyRewards"
 
-max_skip=3
+max_skip=5
 reward_mean=0.0
 
 if [ "$ALGO" == "UTE" ]; then
@@ -27,22 +27,22 @@ fi
 
 use_lr_decay=true
 warmup_steps=10000
-total_training_steps=40000
-eval_render_interval=40000
-buffer_size=40000
-skip_buffer_size=40000 
+total_training_steps=30000
+eval_render_interval=1000000
+buffer_size=30000
+skip_buffer_size=30000 
 
 e_greedy_type=linear
-e_decay=30000
+e_decay=20000
 
-traj_log_interval=300
-eval_interval=300
+traj_log_interval=400
+eval_interval=400
 num_eval_episodes=1
 
 lr=0.001
 tau=0.005
 
-hidden_dim=64
+hidden_dim=32
 batch_size=64
 use_data_aug=false
 
@@ -50,8 +50,8 @@ num_decision=8 # 4
 n_target=1 # 1
 
 cutoff=1.0
-max_alpha=1.0
-min_alpha=0.0
+max_alpha=0.2
+min_alpha=0.1
 use_es_target=false
 expected_ensemble_size=1 
 expected_ensemble_reduction=min
@@ -81,7 +81,7 @@ if [ "$USE_WANDB" != "false" ]; then
     EXTRA_ARGS+=("group_name=$GN")
 fi
 
-for SEED in {0..19};
+for SEED in {15..19};
 do
     ARGS=(
         "base_agent=$BASE_AGENT"

@@ -135,10 +135,10 @@ class GridEnv(gym.Env):
     
     def render(self):
         """
-        RGB 배열로 그리드 월드를 시각화합니다.
-        - 배경: 흰색 / 시작: 녹색 / 함정: 빨간색 / 목표: 파란색
-        - 에이전트: 검은색 원
-        - 격자선: 회색
+        Visualize the grid world as an RGB array.
+        - Background: white / Start: green / Trap: red / Goal: blue
+        - Agent: black circle
+        - Grid lines: gray
         """
         H, W = self.shape
         cell_size = 40

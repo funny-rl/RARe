@@ -317,18 +317,29 @@ class RARe:
 
         if self.use_es_target:
             if self.is_continuous:
-                self.skip_num_parameters += sum(
+                # self.skip_num_parameters += sum(
+                #     p.numel()
+                #     for p in self.expected_critic.parameters()
+                #     if p.requires_grad
+                # )
+                et = sum(
                     p.numel()
                     for p in self.expected_critic.parameters()
                     if p.requires_grad
                 )
+                print(f"Number of expected target : {et}")
             else:
-                self.skip_num_parameters += sum(
+                # self.skip_num_parameters += sum(
+                #     p.numel()
+                #     for p in self.expected_sarsa.parameters()
+                #     if p.requires_grad
+                # )
+                et = sum(
                     p.numel()
                     for p in self.expected_sarsa.parameters()
                     if p.requires_grad
                 )
-
+                print(f"Number of expected target : {et}")
         print(
             f"[{self.__class__.__name__}] "
             f"Number of parameters: {self.skip_num_parameters}"

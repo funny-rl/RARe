@@ -68,7 +68,7 @@ class TAACBuffer:
         chunk_idxs = chunk_idxs % self.buffer_size 
 
 
-        # 데이터 추출 (Batch, Seq, Dim)
+        # Data extraction (Batch, Seq, Dim)
         return (
             self.state_buffer[chunk_idxs].to(self.device),
             self.action_buffer[chunk_idxs].to(self.device),
