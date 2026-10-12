@@ -19,7 +19,7 @@ batched on the selected GPU. Only physical GPUs 0,1,2,3 are allowed.
 If omitted, GPU and seeds follow the unified CLI defaults: GPU 0 and seed 0.
 
 Fixed Grid launchers use the YAML budgets: CliffWalking 15,000, Bridge 23,000,
-and ZigZag 28,000 primitive steps per seed. Random Grid launchers set
+and ZigZag 30,000 primitive steps per seed. Random Grid launchers set
 CliffWalking to 50,000 and Bridge/ZigZag to 100,000 steps per seed. These
 launcher defaults can be changed with an explicit `--total-steps N` argument.
 The current 20-seed campaign passed `--model-save-interval 0` to every run.
@@ -106,7 +106,7 @@ Default evaluation starts after warmup. The interval remains 1% of the total
 primitive-step budget, anchored at warmup end, and the final step is included.
 For CliffWalking this gives 2150,2300,...,14900,15000 with total_steps=15000
 and warmup_steps=2000. Bridge starts at 3230 with interval 230; ZigZag starts
-at 3280 with interval 280. Fractional offsets round up and duplicate points
+at 3300 with interval 300. Fractional offsets round up and duplicate points
 are removed. All-warmup budgets have no evaluation. Previously completed
 runs retain their original checkpoints and are never rewritten.
 With the Random Grid launcher budgets, RCliffWalking starts at 2500 and ends

@@ -62,5 +62,5 @@ environments:
       warmup_steps: 3000
   ZigZag:
     common:
-      total_steps: 28000
+      total_steps: 30000
       warmup_steps: 3000
