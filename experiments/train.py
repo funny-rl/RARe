@@ -1,0 +1,125 @@
+"""Unified grid experiments: python -m experiments.train --help."""
+
+import argparse
+from dataclasses import asdict
+from pathlib import Path
+import sys
+
+from .config import ALGORITHM_FIELDS, COMMON_FIELDS, DEFAULT_CONFIG, resolve_config, resolve_evaluation_config
+from .device import configure_device
+from .engine import run_experiment
+
+
+def parse_seeds(value):
+    """Accept comma-separated integers or start:stop with an exclusive stop."""
+    try:
+        if ":" in value:
+            start, stop = map(int, value.split(":"))
+            seeds = list(range(start, stop))
+        else:
+            seeds = list(map(int, value.split(",")))
+    except (ValueError, TypeError) as error:
+        raise argparse.ArgumentTypeError("use comma-separated seeds or start:stop") from error
+    if not seeds or len(set(seeds)) != len(seeds) or any(not 0 <= seed < 2 ** 32 for seed in seeds):
+        raise argparse.ArgumentTypeError("seeds must be distinct uint32 values and nonempty")
+    return seeds
+
+
+def parse_evaluation_episodes(value):
+    if value == "all":
+        return value
+    try:
+        episodes = int(value)
+    except (ValueError, TypeError) as error:
+        raise argparse.ArgumentTypeError("use a positive episode count or 'all'") from error
+    if episodes <= 0:
+        raise argparse.ArgumentTypeError("use a positive episode count or 'all'")
+    return episodes
+
+def parser():
+    result = argparse.ArgumentParser(allow_abbrev=False, description="JAX grid DDQN/TempoRL/UTE/RARe with common and algorithm-specific YAML settings. Physical GPUs 0..3 only.")
+    result.add_argument("--env", choices=("CliffWalking", "Bridge", "ZigZag"), default="CliffWalking")
+    result.add_argument("--random", action="store_true", help="resample start/goal at every reset")
+    result.add_argument("--seeds", type=parse_seeds, default=[0], help="e.g. 0,7,19 or 0:20 (stop exclusive)")
+    result.add_argument("--algorithm", choices=tuple(ALGORITHM_FIELDS), default="DDQN")
+    result.add_argument("--config", type=Path, help=f"optional YAML overrides of {DEFAULT_CONFIG}")
+    result.add_argument("--total-steps", type=int, default=argparse.SUPPRESS, help="primitive interactions PER seed, including warmup")
+    for name in ("warmup_steps", "replay_capacity", "batch_size", "hidden_dim", "epsilon_decay_steps", "target_interval"):
+        result.add_argument("--" + name.replace("_", "-"), type=int, default=argparse.SUPPRESS)
+    for name in ("gamma", "learning_rate", "max_epsilon", "min_epsilon", "tau"):
+        result.add_argument("--" + name.replace("_", "-"), type=float, default=argparse.SUPPRESS)
+    result.add_argument("--epsilon-schedule", choices=("linear", "exponential"), default=argparse.SUPPRESS)
+    result.add_argument("--lr-decay", action="store_true", default=argparse.SUPPRESS)
+    result.add_argument("--hard-target", action="store_true", default=argparse.SUPPRESS)
+    result.add_argument("--chunk-steps", type=int, default=256, help="compiled interactions per logging chunk")
+    result.add_argument("--platform", choices=("cuda", "cpu"), default="cuda")
+    result.add_argument("--gpu", type=int, help="physical CUDA index 0..3; default: 0, overrides inherited visibility")
+    result.add_argument("--output", type=Path, help="new run directory; default: runs/<unique id>")
+    result.add_argument("--eval-interval-fraction", type=float, default=argparse.SUPPRESS,
+                        help="evaluation interval as a fraction of total primitive steps, starting after warmup; default: 0.01")
+    result.add_argument("--eval-interval-steps", type=int, default=argparse.SUPPRESS,
+                        help="evaluate every N primitive steps after warmup plus final; 0 disables")
+    result.add_argument("--eval-episodes", type=parse_evaluation_episodes, default=argparse.SUPPRESS,
+                        help="'all' evaluates every grid start-goal pair once; positive N samples N episodes; default: fixed=1, random=all")
+    result.add_argument("--risk-diagnostics", dest="eval_risk_diagnostics", action=argparse.BooleanOptionalAction,
+                        default=argparse.SUPPRESS, help="exact Grid skip-value and Eq. 3 risk errors; excludes DDQN; default: enabled")
+    result.add_argument("--model-save-interval", type=int,
+                        help="override default saves at 20/40/60/80/100%% of total steps per seed (rounded up; fewer than 5 steps deduplicate); positive N saves every N steps plus final, 0 disables saves")
+    result.add_argument("--wandb-mode", choices=("disabled", "offline", "online"), default="online",
+                        help="W&B logging mode; offline records locally without uploading")
+    result.add_argument("--wandb-project", help="fixed to RARe-<environment>, with R prefix for random mode; only the matching name is accepted")
+    result.add_argument("--wandb-entity", default="singfor7012", help="W&B team or user name")
+    result.add_argument("--wandb-name", help="W&B run-name prefix; default: <algorithm>-<environment>-<timestamp>-<unique id>, with RARe-sh/RARe-se; each seed adds -seed<N>")
+    for name in ("max_skip", "skip_replay_capacity", "ensemble_size"):
+        result.add_argument("--" + name.replace("_", "-"), type=int, default=argparse.SUPPRESS)
+    for name in ("skip_learning_rate", "uncertainty_factor", "bootstrap_probability", "max_eval_epsilon",
+                 "min_eval_epsilon", "eval_epsilon_cutoff", "eval_learning_rate"):
+        result.add_argument("--" + name.replace("_", "-"), type=float, default=argparse.SUPPRESS)
+    result.add_argument("--data-aug", dest="use_data_aug", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
+    result.add_argument("--rare-q-mode", choices=("separate", "shared"), default=argparse.SUPPRESS,
+                        help="RARe only: separate Expected SARSA Q (default), or reuse base DDQN Q for expected skip targets and risk policy")
+    result.add_argument("--no-lr-decay", dest="lr_decay", action="store_false", default=argparse.SUPPRESS)
+    result.add_argument("--soft-target", dest="hard_target", action="store_false", default=argparse.SUPPRESS)
+    return result
+
+
+def main(argv=None):
+    argument_parser = parser()
+    args = argument_parser.parse_args(argv)
+    project = f"RARe-{'R' if args.random else ''}{args.env}"
+    if args.wandb_project is not None and args.wandb_project != project:
+        argument_parser.error(f"wandb-project is fixed to {project}")
+    args.wandb_project = project
+    args.launch_argv = list(sys.argv[1:] if argv is None else argv)
+    renamed = {"lr_decay": "use_lr_decay", "hard_target": "use_hard_update", "target_interval": "update_interval"}
+    overrides = {renamed.get(key, key): value for key, value in vars(args).items()
+                 if renamed.get(key, key) in COMMON_FIELDS | set().union(*ALGORITHM_FIELDS.values())}
+    try:
+        if args.chunk_steps <= 0 or (args.model_save_interval is not None and args.model_save_interval < 0):
+            raise ValueError("chunk-steps must be positive and model-save-interval nonnegative")
+        configure_device(args)
+        common, specific, inputs = resolve_config(args.config, args.env, args.algorithm, overrides)
+        args.evaluation_config = resolve_evaluation_config(inputs, args.env, args.random, {
+            key.removeprefix("eval_"): value for key, value in vars(args).items()
+            if key in ("eval_interval_fraction", "eval_interval_steps", "eval_episodes", "eval_risk_diagnostics")
+        })
+        import jax
+        import jax.numpy as jnp
+        import numpy as np
+        from envs.grid import make_grid_env
+        from runners import DDQNRunConfig, DDQNRunner, SkipRunConfig, SkipRunner
+        if args.algorithm == "DDQN":
+            config, runner = DDQNRunConfig(**common), DDQNRunner
+        else:
+            config, runner = SkipRunConfig(**common, algorithm=args.algorithm, **specific), SkipRunner
+    except (ValueError, TypeError, OSError) as error:
+        argument_parser.error(str(error))
+    args.configuration = {"common": common, "algorithm": specific,
+                          "evaluation": asdict(args.evaluation_config),
+                          "inputs": [{key: value for key, value in source.items() if key != "content"} for source in inputs]}
+    args.configuration_inputs = inputs
+    return run_experiment(args, config, make_grid_env(args.env, random=args.random), jax, jnp, np, runner)
+
+
+if __name__ == "__main__":
+    main()

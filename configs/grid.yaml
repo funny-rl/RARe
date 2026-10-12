@@ -1,0 +1,66 @@
+# Grid coefficients follow the previous grid experiment scripts; budgets are configurable.
+# RARe defaults to separate evaluation Q; shared reuses the base DDQN Q.
+common:
+  batch_size: 64
+  hidden_dim: 64
+  gamma: 0.99
+  learning_rate: 0.001
+  replay_capacity: null  # resolves to the selected total_steps
+  max_epsilon: 1.0
+  min_epsilon: 0.0
+  epsilon_decay_steps: null  # resolves to max(total_steps - warmup_steps, 1)
+  epsilon_schedule: linear
+  use_lr_decay: true
+  tau: 0.005
+  use_hard_update: false
+  update_interval: 1000
+
+evaluation:
+  interval_fraction: 0.01  # interval = total_steps / 100; starts after warmup
+  interval_steps: null  # positive integer overrides fraction; 0 disables evaluation
+  episodes: 1
+  random_episodes: all  # evaluate every start-goal pair once
+  risk_diagnostics: true  # exact Grid values; DDQN is excluded
+
+algorithms:
+  DDQN: {}
+  TempoRL:
+    max_skip: 6
+    skip_replay_capacity: null  # resolves to 3 * total_steps
+    skip_learning_rate: null  # inherits common.learning_rate
+    use_data_aug: true
+  UTE:
+    max_skip: 6
+    skip_replay_capacity: null
+    skip_learning_rate: null
+    use_data_aug: true
+    ensemble_size: 5
+    uncertainty_factor: -1.5
+    bootstrap_probability: 0.5
+  RARe:
+    rare_q_mode: separate  # separate | shared, also configurable with --rare-q-mode
+    max_skip: 6
+    skip_replay_capacity: null
+    skip_learning_rate: null
+    use_data_aug: true
+    max_eval_epsilon: 0.2
+    min_eval_epsilon: 0.01
+    eval_epsilon_cutoff: 1.0
+    eval_learning_rate: null  # separate only; inherits common.learning_rate
+
+environments:
+  CliffWalking:
+    common:
+      total_steps: 15000
+      warmup_steps: 2000
+    algorithms:
+      RARe:
+        max_eval_epsilon: 0.1
+  Bridge:
+    common:
+      total_steps: 23000
+      warmup_steps: 3000
+  ZigZag:
+    common:
+      total_steps: 28000
+      warmup_steps: 3000

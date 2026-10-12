@@ -1,1 +1,6 @@
 /paper/
+/tests/
+/runs/
+__pycache__/
+*.py[cod]
+.pytest_cache/
