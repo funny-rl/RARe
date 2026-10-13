@@ -16,7 +16,7 @@ from diagnostics.auc import auc_statistics, grid_reward_ceiling, normalize_rewar
 
 
 ALGORITHMS = ("DDQN", "TempoRL", "UTE", "RARe-sh", "RARe-se")
-SUPPORTED_ALGORITHMS = (*ALGORITHMS, "RARe-sh-eval")
+SUPPORTED_ALGORITHMS = (*ALGORITHMS, "RARe-sh-eval", "TAACDiscrete")
 
 
 def _integer(value, name):
@@ -35,7 +35,7 @@ def _algorithm(metadata):
             return "RARe-se"
         return ("RARe-sh-eval" if metadata["config"].get("shared_target_epsilon_source") == "evaluation"
                 else "RARe-sh")
-    if algorithm not in ALGORITHMS:
+    if algorithm not in SUPPORTED_ALGORITHMS:
         raise ValueError(f"unsupported algorithm: {algorithm}")
     return algorithm
 
