@@ -22,6 +22,7 @@ class GridSpec:
     step_reward: float = -1.0
     goal_reward: float = -1.0
     pit_reward: float = -100.0
+    walls: tuple[tuple[int, int], ...] = ()
 
     def __post_init__(self) -> None:
         if len(self.shape) != 2 or any(type(n) is not int or n <= 0 for n in self.shape):
@@ -30,7 +31,7 @@ class GridSpec:
             raise ValueError("max_steps must be a positive integer")
         if not self.starts or not self.goals or not self.actions:
             raise ValueError("starts, goals, and actions must be nonempty")
-        for positions in (self.starts, self.goals, self.pits):
+        for positions in (self.starts, self.goals, self.pits, self.walls):
             for position in positions:
                 if len(position) != 2 or any(type(n) is not int for n in position):
                     raise ValueError("positions must contain integer coordinate pairs")
@@ -41,6 +42,8 @@ class GridSpec:
                 raise ValueError("actions must contain integer coordinate offsets")
         if set(self.pits).intersection((*self.starts, *self.goals)):
             raise ValueError("starts and goals must not overlap pits")
+        if set(self.walls).intersection((*self.starts, *self.goals, *self.pits)):
+            raise ValueError("walls must not overlap starts, goals, or pits")
         if not all(math.isfinite(r) for r in (self.step_reward, self.goal_reward, self.pit_reward)):
             raise ValueError("rewards must be finite")
 
@@ -83,6 +86,12 @@ def build_params(spec: GridSpec) -> GridParams:
                 successors.append(index((nr, nc)) if valid else index((row, col)))
             transitions.append(successors)
     pits = set(map(index, spec.pits))
+    walls = set(map(index, spec.walls))
+    if walls:
+        transitions = [
+            [cell if successor in walls else successor for successor in successors]
+            for cell, successors in enumerate(transitions)
+        ]
     return GridParams(
         transitions=jnp.asarray(transitions, dtype=jnp.int32),
         pit_mask=jnp.asarray([i in pits for i in range(height * width)]),
@@ -140,6 +149,8 @@ class GridEnv:
     """
 
     backend = "rare_jax"
+    supports_exact_risk = True
+    requires_global_step = False
     observation_storage_dtype = jnp.uint8
     observation_codec = "grid_indices"
 
@@ -155,11 +166,13 @@ class GridEnv:
     def num_actions(self) -> int:
         return len(self.spec.actions)
 
-    def reset(self, key: jax.Array) -> tuple[jax.Array, GridState]:
+    def reset(self, key: jax.Array, *, global_step: int | jax.Array = 0) -> tuple[jax.Array, GridState]:
+        del global_step
         return reset(key, self.params)
 
-    def evaluation_resets(self) -> tuple[jax.Array, GridState]:
+    def evaluation_resets(self, *, global_step: int | jax.Array = 0) -> tuple[jax.Array, GridState]:
         """Enumerate start-major, goal-minor reset pairs without sampling RNG."""
+        del global_step
         starts, goals = self.params.starts, self.params.goals
         state = GridState(
             position=jnp.repeat(starts, goals.shape[0]),
@@ -167,6 +180,12 @@ class GridEnv:
             steps=jnp.zeros((starts.shape[0] * goals.shape[0],), dtype=jnp.int32),
         )
         return jax.vmap(observe, in_axes=(0, None))(state, self.params), state
+
+    def with_global_step(self, observation: jax.Array, state: GridState,
+                         global_step: int | jax.Array) -> tuple[jax.Array, GridState]:
+        """Static grids do not change their evaluation state with training time."""
+        del global_step
+        return observation, state
 
     def episode_outcome(self, state: GridState) -> tuple[jax.Array, jax.Array]:
         """Classify the real final state for performance evaluation."""

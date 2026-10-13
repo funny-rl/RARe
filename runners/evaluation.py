@@ -7,6 +7,7 @@ import jax.numpy as jnp
 
 from networks.q import apply_q
 from networks.skip import apply_skip, apply_skip_ensemble
+from algorithms.taac_discrete import actor_logits
 
 
 class EvaluationEpisodes(NamedTuple):
@@ -26,7 +27,7 @@ class ObservedEvaluation(NamedTuple):
 
 def evaluate_policy(env, online_params, key, *, episodes, algorithm, outcome_fn,
                     skip_params=None, uncertainty_factor=-1.5, initial_states=None,
-                    decision_observer=None, initial_diagnostics=None):
+                    decision_observer=None, initial_diagnostics=None, global_step=0):
     """Evaluate complete episodes without accessing training state or replay.
 
     Episodes use fold_in(checkpoint_key, zero-based episode index). Base actions
@@ -54,9 +55,10 @@ def evaluate_policy(env, online_params, key, *, episodes, algorithm, outcome_fn,
     def episode(episode_key, index):
         reset_key, rollout_key = jax.random.split(episode_key)
         if initial_states is None:
-            observation, env_state = env.reset(reset_key)
+            observation, env_state = env.reset(reset_key, global_step=global_step)
         else:
             observation, env_state = jax.tree.map(lambda value: value[index], initial_states)
+            observation, env_state = env.with_global_step(observation, env_state, global_step)
         initial = (rollout_key, observation, env_state, jnp.int32(0), jnp.int32(0),
                    jnp.float32(0), jnp.int32(0), jnp.int32(0), jnp.bool_(False), jnp.bool_(False),
                    () if initial_diagnostics is None else initial_diagnostics)
@@ -98,3 +100,42 @@ def evaluate_policy(env, online_params, key, *, episodes, algorithm, outcome_fn,
     indices = jnp.arange(episodes, dtype=jnp.uint32)
     keys = jax.vmap(lambda index: jax.random.fold_in(key, index))(indices)
     return jax.vmap(episode)(keys, indices)
+
+
+def evaluate_taac_discrete(env, critic_params, actor_params, key, *, episodes, outcome_fn,
+                           initial_states=None, global_step=0):
+    """Frozen deterministic mode of the two-stage policy, one step at a time."""
+    if type(episodes) is not int or episodes <= 0:
+        raise ValueError("episodes must be a positive integer")
+    if initial_states is not None and any(
+        value.ndim == 0 or value.shape[0] != episodes for value in jax.tree.leaves(initial_states)
+    ):
+        raise ValueError("initial_states must have an episode axis matching episodes")
+    num_actions = critic_params[-1].bias.shape[0]
+
+    def episode(index):
+        episode_key = jax.random.fold_in(key, index)
+        reset_key, rollout_key = jax.random.split(episode_key)
+        if initial_states is None:
+            observation, env_state = env.reset(reset_key, global_step=global_step)
+        else:
+            observation, env_state = jax.tree.map(lambda value: value[index], initial_states)
+            observation, env_state = env.with_global_step(observation, env_state, global_step)
+        initial = (rollout_key, observation, env_state, jnp.int32(-1), jnp.float32(0),
+                   jnp.int32(0), jnp.bool_(False), jnp.bool_(False))
+
+        def step(carry):
+            rng, obs, state, previous, reward_sum, length, _, _ = carry
+            proposal = jnp.argmax(actor_logits(actor_params, obs, previous, num_actions)).astype(jnp.int32)
+            q = apply_q(critic_params, obs)
+            action = jnp.where((previous < 0) | (q[proposal] > q[jnp.maximum(previous, 0)]),
+                               proposal, previous).astype(jnp.int32)
+            rng, step_key = jax.random.split(rng)
+            obs, state, reward, terminated, truncated, _ = env.step(step_key, state, action)
+            return rng, obs, state, action, reward_sum + reward, length + 1, terminated, truncated
+
+        final = jax.lax.while_loop(lambda carry: ~(carry[6] | carry[7]), step, initial)
+        success, pit = outcome_fn(final[2])
+        return EvaluationEpisodes(final[4], final[5], final[5], success, pit, final[6], final[7])
+
+    return jax.vmap(episode)(jnp.arange(episodes, dtype=jnp.uint32))

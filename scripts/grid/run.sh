@@ -16,7 +16,7 @@ case "$grid_env" in
     *) echo "Unknown grid environment: $grid_env" >&2; exit 2 ;;
 esac
 case "$grid_algorithm" in
-    DDQN|TempoRL|UTE|RARe) ;;
+    DDQN|TempoRL|UTE|RARe|TAACDiscrete) ;;
     *) echo "Unknown grid algorithm: $grid_algorithm" >&2; exit 2 ;;
 esac
 mode_args=()
@@ -32,7 +32,7 @@ case "$grid_mode" in
         mode_args=(--random --total-steps "$grid_steps")
         if (( grid_steps >= 100000 )); then
             mode_args+=(--replay-capacity 100000)
-            if [[ "$grid_algorithm" != DDQN ]]; then
+            if [[ "$grid_algorithm" != DDQN && "$grid_algorithm" != TAACDiscrete ]]; then
                 mode_args+=(--skip-replay-capacity 300000)
             fi
         fi

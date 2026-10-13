@@ -279,7 +279,10 @@ class SkipRunner(DDQNRunner):
         episode_return = state.episode_return + reward
         def reset(keys):
             stream, reset_key = jax.random.split(keys.environment)
-            observation, reset_state = self.env.reset(reset_key)
+            observation, reset_state = (
+                self.env.reset(reset_key, global_step=steps)
+                if getattr(self.env, "requires_global_step", False) else self.env.reset(reset_key)
+            )
             return observation, reset_state, keys._replace(environment=stream)
         observation, env_state, rngs = jax.lax.cond(done, reset, lambda keys: (next_obs, env_state, keys), rngs)
         updated = state._replace(

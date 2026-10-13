@@ -46,7 +46,9 @@ def rng_records(jax, state, seeds, phase, *, snapshot=None):
 
 def policy_models(state, algorithm, *, with_risk=False, shared_target_epsilon_source="behavior"):
     models = {"online": state.learner.online_params}
-    if algorithm != "DDQN":
+    if algorithm == "TAACDiscrete":
+        models["actor"] = state.learner.actor_params
+    elif algorithm != "DDQN":
         models["skip"] = state.skip_learner.params
     if with_risk:
         # True Risk always measures the policy that actually chooses actions.
@@ -99,6 +101,7 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
     root = Path(__file__).resolve().parents[1]
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     algorithm = args.algorithm
+    skip_algorithm = algorithm in ("TempoRL", "UTE", "RARe")
     separate_rare = algorithm == "RARe" and config.rare_q_mode == "separate"
     shared_eval = (algorithm == "RARe" and config.rare_q_mode == "shared"
                    and config.shared_target_epsilon_source == "evaluation")
@@ -120,7 +123,8 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
     evaluation_step_set = frozenset(evaluation_steps)
     from envs.grid import GridEnv
     risk_enabled = (bool(evaluation_steps) and args.evaluation_config.risk_diagnostics
-                    and algorithm != "DDQN" and isinstance(env, GridEnv))
+                    and skip_algorithm and isinstance(env, GridEnv)
+                    and env.supports_exact_risk)
     requested_episodes = args.evaluation_config.episodes
     evaluation_cases = None
     evaluation_initial_states = None
@@ -159,7 +163,7 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
             "ute_skip_selector": "mean + uncertainty_factor * sample_std(ddof=1)",
             "risk": {
                 "enabled": risk_enabled, "requested": args.evaluation_config.risk_diagnostics,
-                "scope": "GridEnv skip algorithms only", "reference": "exact finite-horizon V_star minus V_pi",
+                "scope": "deterministic GridEnv skip algorithms only", "reference": "exact finite-horizon V_star minus V_pi",
                 "policy_source": "base_online_for_every_algorithm",
                 "epsilon_source": "behavior_epsilon_including_warmup_for_every_algorithm",
                 "shared_rare_target_policy": ("base_online_with_independent_evaluation_epsilon" if shared_eval
@@ -192,7 +196,19 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
                          "unit": "primitive_steps_per_seed", "save_final": args.model_save_interval != 0,
                          "contents": ["online_params", "target_params"], "full_training_state": False},
     }
-    if algorithm != "DDQN":
+    if algorithm == "TAACDiscrete":
+        metadata["model_saving"]["contents"].extend(
+            ["actor_params", "target_actor_params", "log_temperature", "log_actor_temperature"])
+        metadata["protocol"].update(
+            taac_discrete_reference="Yu et al. 2021 TAAC; categorical action adaptation",
+            taac_target="sampled multi-step compare-through, cut at policy/replay action mismatch",
+            taac_proposal="categorical conditioned on observation and previous action",
+            taac_gate="softmax of previous-action and sampled-proposal Q",
+            taac_duplicate_action_rule="candidate may equal previous action; both gate choices yield that action",
+            taac_actor_objective="exact categorical expectation with actor and gate entropy",
+            taac_critic_replicas=1,
+        )
+    if skip_algorithm:
         metadata["model_saving"]["contents"].append("skip_params")
         metadata["protocol"].update(repeat_warmup="fixed_at_decision", skip_replay_insertion="after_learning_at_repeat_end")
     if algorithm == "RARe":
@@ -244,7 +260,7 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
         evaluation_compilation_seconds = 0.
         evaluation_seconds = 0.
         if evaluation_steps:
-            from runners.evaluation import evaluate_policy
+            from runners.evaluation import evaluate_policy, evaluate_taac_discrete
             compile_start = time.perf_counter()
             if risk_enabled:
                 from diagnostics.grid_risk import evaluate_grid_risk
@@ -260,13 +276,22 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
                           state.rngs.evaluation,
                           state.training_steps.astype(jnp.float32),
                           state.training_steps.astype(jnp.float32)).compile()
+            elif algorithm == "TAACDiscrete":
+                evaluate = jax.jit(jax.vmap(lambda models, key, global_step: evaluate_taac_discrete(
+                    env, models["online"], models["actor"], key,
+                    episodes=evaluation_episode_count, outcome_fn=env.episode_outcome,
+                    initial_states=evaluation_initial_states, global_step=global_step,
+                ), in_axes=(0, 0, None))).lower(
+                    policy_models(state, algorithm), state.rngs.evaluation,
+                    jnp.asarray(0, jnp.int32)).compile()
             else:
-                evaluate = jax.jit(jax.vmap(lambda models, key: evaluate_policy(
+                evaluate = jax.jit(jax.vmap(lambda models, key, global_step: evaluate_policy(
                     env, models["online"], key, episodes=evaluation_episode_count,
                     algorithm=algorithm, outcome_fn=env.episode_outcome, skip_params=models.get("skip"),
                     uncertainty_factor=getattr(config, "uncertainty_factor", -1.5),
-                    initial_states=evaluation_initial_states,
-                ))).lower(policy_models(state, algorithm), state.rngs.evaluation).compile()
+                    initial_states=evaluation_initial_states, global_step=global_step,
+                ), in_axes=(0, 0, None))).lower(
+                    policy_models(state, algorithm), state.rngs.evaluation, jnp.asarray(0, jnp.int32)).compile()
             evaluation_compilation_seconds = time.perf_counter() - compile_start
         compilation_seconds = 0.
         execution_and_transfer_seconds = 0.
@@ -282,9 +307,12 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
                 "learning_rate": runner._learning_rate(updated.training_steps),
                 "rng": {name: jax.random.key_data(key) for name, key in updated.rngs._asdict().items()},
             }
-            if algorithm != "DDQN":
+            if skip_algorithm:
                 snapshot["skip"] = (updated.skip_replay.size, updated.skip_learner.optimizer_state.count,
                                     updated.decisions, runner._rate(updated.training_steps, config.skip_learning_rate))
+            if algorithm == "TAACDiscrete":
+                snapshot["taac_temperatures"] = (jnp.exp(updated.learner.log_temperature),
+                                                 jnp.exp(updated.learner.log_actor_temperature))
             if algorithm == "RARe":
                 snapshot["evaluation_epsilon"] = runner._evaluation_epsilon(updated.training_steps)
                 if separate_rare:
@@ -319,7 +347,7 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
             execution_and_transfer_seconds += chunk_seconds
             episode_records = tracker.records(metrics, start_step)
             epsilon, rate = snapshot["epsilon"], snapshot["learning_rate"]
-            if algorithm != "DDQN":
+            if skip_algorithm:
                 skip_sizes, skip_updates, decisions, skip_rates = snapshot["skip"]
             if algorithm == "RARe":
                 eval_epsilons = snapshot["evaluation_epsilon"]
@@ -345,7 +373,7 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
                     "next_learning_rate": float(rate[index] if np.ndim(rate) else rate),
                     "chunk_seconds": chunk_seconds,
                 })
-                if algorithm != "DDQN":
+                if skip_algorithm:
                     skip_learned = metrics.skip_learned[index]
                     selected = metrics.selected_skip[index][metrics.decision[index] & active]
                     executed = metrics.executed_skip[index][metrics.segment_completed[index] & active]
@@ -358,6 +386,16 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
                         executed_skip_mean=float(executed.mean()) if executed.size else None,
                         next_skip_epsilon=float(epsilon[index]),
                         next_skip_learning_rate=float(skip_rates[index] if np.ndim(skip_rates) else skip_rates),
+                    )
+                if algorithm == "TAACDiscrete":
+                    valid_policy = active & ~((start_step + np.arange(active.size)) < config.warmup_steps)
+                    records[-1].update(
+                        action_change_rate=float(metrics.action_changed[index][valid_policy].mean())
+                        if valid_policy.any() else None,
+                        actor_loss_mean=float(metrics.actor_loss[index][learned].mean()) if learned.any() else None,
+                        gate_entropy_mean=float(metrics.gate_entropy[index][learned].mean()) if learned.any() else None,
+                        gate_temperature=float(snapshot["taac_temperatures"][0][index]),
+                        actor_temperature=float(snapshot["taac_temperatures"][1][index]),
                     )
                 if algorithm == "RARe":
                     records[-1]["expected_policy_epsilon"] = float(eval_epsilons[index])
@@ -381,8 +419,13 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
             if should_save:
                 relative_path = f"models/step_{end_step:09d}.npz"
                 models = {"online": state.learner.online_params, "target": state.learner.target_params}
-                if algorithm != "DDQN":
+                if skip_algorithm:
                     models["skip"] = state.skip_learner.params
+                if algorithm == "TAACDiscrete":
+                    models.update(actor=state.learner.actor_params,
+                                  target_actor=state.learner.target_actor_params,
+                                  log_temperature=state.learner.log_temperature,
+                                  log_actor_temperature=state.learner.log_actor_temperature)
                 if separate_rare:
                     models.update(evaluation_online=state.evaluation.online_params, evaluation_target=state.evaluation.target_params)
                 save_models(
@@ -406,7 +449,8 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
                         jax.random.key_data(keys)))
                     results = risk_results.episodes
                 else:
-                    results, key_data = jax.device_get((evaluate(policy_models(state, algorithm), keys),
+                    results, key_data = jax.device_get((evaluate(policy_models(state, algorithm), keys,
+                                                                  jnp.asarray(end_step, jnp.int32)),
                                                        jax.random.key_data(keys)))
                 evaluation_rows, evaluation_episodes = evaluation_records(
                     jax, results, keys, args.seeds, end_step, cases=evaluation_cases, key_data=key_data,

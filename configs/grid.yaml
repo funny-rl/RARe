@@ -24,6 +24,12 @@ evaluation:
 
 algorithms:
   DDQN: {}
+  TAACDiscrete:
+    temperature: 0.1
+    actor_temperature: 0.1
+    target_entropy_delta: 0.05
+    target_actor_entropy_ratio: 0.5
+    compare_horizon: 10
   TempoRL:
     max_skip: 6
     skip_replay_capacity: null  # resolves to 3 * total_steps
@@ -65,3 +71,9 @@ environments:
     common:
       total_steps: 35000
       warmup_steps: 3000
+  WindShift:
+    common:
+      total_steps: 25000
+      warmup_steps: 3000
+    evaluation:
+      risk_diagnostics: false  # deterministic-grid oracle does not apply to wind

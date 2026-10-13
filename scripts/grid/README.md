@@ -4,6 +4,7 @@ Each environment directory contains `ddqn.sh`, `temporl.sh`, `ute.sh` and
 `rare.sh`. The six directories are `cliffwalking`, `bridge`, `zigzag`,
 `rcliffwalking`, `rbridge` and `rzigzag`. The `r` variants enable
 reproducible start/goal sampling on every reset.
+`cliffwalking/taac.sh` runs the categorical TAAC-Discrete baseline.
 
 Launch one experiment:
 

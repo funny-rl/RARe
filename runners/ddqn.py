@@ -179,7 +179,10 @@ class DDQNRunner:
 
         def reset_episode(keys):
             environment_stream, reset_key = jax.random.split(keys.environment)
-            observation, reset_state = self.env.reset(reset_key)
+            observation, reset_state = (
+                self.env.reset(reset_key, global_step=steps)
+                if getattr(self.env, "requires_global_step", False) else self.env.reset(reset_key)
+            )
             return observation, reset_state, keys._replace(environment=environment_stream)
 
         observation, env_state, rngs = jax.lax.cond(

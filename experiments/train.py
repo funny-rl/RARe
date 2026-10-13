@@ -37,9 +37,18 @@ def parse_evaluation_episodes(value):
     return episodes
 
 def parser():
-    result = argparse.ArgumentParser(allow_abbrev=False, description="JAX grid DDQN/TempoRL/UTE/RARe with common and algorithm-specific YAML settings. Physical GPUs 0..3 only.")
-    result.add_argument("--env", choices=("CliffWalking", "Bridge", "ZigZag"), default="CliffWalking")
+    result = argparse.ArgumentParser(allow_abbrev=False, description="JAX grid DDQN/TempoRL/UTE/RARe/TAACDiscrete with common and algorithm-specific YAML settings. Physical GPUs 0..3 only.")
+    result.add_argument("--env", choices=("CliffWalking", "Bridge", "ZigZag", "WindShift"), default="CliffWalking")
     result.add_argument("--random", action="store_true", help="resample start/goal at every reset")
+    result.add_argument("--wind-switch-interval", type=int,
+                        help="WindShift: global primitive steps per direction; 0 keeps a fixed direction")
+    result.add_argument("--wind-probability", type=float, help="WindShift: gust probability; default 0.5")
+    result.add_argument("--wind-layout", choices=("descending", "ascending"),
+                        help="WindShift: top-left to bottom-right or its vertical mirror")
+    result.add_argument("--wind-initial", choices=("north", "south"),
+                        help="WindShift: direction at global step zero")
+    result.add_argument("--wind-observation", choices=("hidden", "visible"),
+                        help="WindShift: whether the current direction is appended to the observation")
     result.add_argument("--seeds", type=parse_seeds, default=[0], help="e.g. 0,7,19 or 0:20 (stop exclusive)")
     result.add_argument("--algorithm", choices=tuple(ALGORITHM_FIELDS), default="DDQN")
     result.add_argument("--config", type=Path, help=f"optional YAML overrides of {DEFAULT_CONFIG}")
@@ -63,7 +72,7 @@ def parser():
                         help="'all' evaluates every grid start-goal pair once; positive N samples N episodes; default: fixed=1, random=all")
     result.add_argument("--risk-diagnostics", dest="eval_risk_diagnostics", action=argparse.BooleanOptionalAction,
                         default=argparse.SUPPRESS,
-                        help="exact Grid skip-value and V*-minus-V-policy risk errors; excludes DDQN; default: enabled")
+                        help="exact Grid skip-value and V*-minus-V-policy risk errors; skip algorithms only; default: enabled")
     result.add_argument("--model-save-interval", type=int,
                         help="override default saves at 20/40/60/80/100%% of total steps per seed (rounded up; fewer than 5 steps deduplicate); positive N saves every N steps plus final, 0 disables saves")
     result.add_argument("--wandb-mode", choices=("disabled", "offline", "online"), default="online",
@@ -71,10 +80,11 @@ def parser():
     result.add_argument("--wandb-project", help="fixed to RARe-<environment>, with R prefix for random mode; only the matching name is accepted")
     result.add_argument("--wandb-entity", default="singfor7012", help="W&B team or user name")
     result.add_argument("--wandb-name", help="W&B run-name prefix; RARe groups are RARe-sh, RARe-sh-eval or RARe-se; each seed adds -seed<N>")
-    for name in ("max_skip", "skip_replay_capacity", "ensemble_size"):
+    for name in ("max_skip", "skip_replay_capacity", "ensemble_size", "compare_horizon"):
         result.add_argument("--" + name.replace("_", "-"), type=int, default=argparse.SUPPRESS)
     for name in ("skip_learning_rate", "uncertainty_factor", "bootstrap_probability",
-                 "max_eval_epsilon", "min_eval_epsilon", "eval_epsilon_cutoff", "eval_learning_rate"):
+                 "max_eval_epsilon", "min_eval_epsilon", "eval_epsilon_cutoff", "eval_learning_rate",
+                 "temperature", "actor_temperature", "target_entropy_delta", "target_actor_entropy_ratio"):
         result.add_argument("--" + name.replace("_", "-"), type=float, default=argparse.SUPPRESS)
     result.add_argument("--data-aug", dest="use_data_aug", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
     result.add_argument("--rare-q-mode", choices=("separate", "shared"), default=argparse.SUPPRESS,
@@ -110,10 +120,30 @@ def main(argv=None):
         import jax
         import jax.numpy as jnp
         import numpy as np
-        from envs.grid import make_grid_env
-        from runners import DDQNRunConfig, DDQNRunner, SkipRunConfig, SkipRunner
+        from envs.grid import make_grid_env, make_wind_shift_env
+        from runners import (DDQNRunConfig, DDQNRunner, SkipRunConfig, SkipRunner,
+                             TAACDiscreteRunConfig, TAACDiscreteRunner)
+        wind_options = ("wind_switch_interval", "wind_probability", "wind_layout",
+                        "wind_initial", "wind_observation")
+        if args.env == "WindShift":
+            if args.random:
+                raise ValueError("WindShift uses fixed corner endpoints; --random is not supported")
+            if args.wind_switch_interval is None:
+                raise ValueError("WindShift requires --wind-switch-interval (use 0 for the stationary control)")
+            env = make_wind_shift_env(
+                switch_interval=args.wind_switch_interval,
+                wind_probability=0.5 if args.wind_probability is None else args.wind_probability,
+                layout=args.wind_layout or "descending", initial_wind=args.wind_initial or "north",
+                observe_wind=args.wind_observation == "visible",
+            )
+        else:
+            if any(getattr(args, name) is not None for name in wind_options):
+                raise ValueError("--wind-* options require --env WindShift")
+            env = make_grid_env(args.env, random=args.random)
         if args.algorithm == "DDQN":
             config, runner = DDQNRunConfig(**common), DDQNRunner
+        elif args.algorithm == "TAACDiscrete":
+            config, runner = TAACDiscreteRunConfig(**common, **specific), TAACDiscreteRunner
         else:
             config, runner = SkipRunConfig(**common, algorithm=args.algorithm, **specific), SkipRunner
     except (ValueError, TypeError, OSError) as error:
@@ -122,7 +152,7 @@ def main(argv=None):
                           "evaluation": asdict(args.evaluation_config),
                           "inputs": [{key: value for key, value in source.items() if key != "content"} for source in inputs]}
     args.configuration_inputs = inputs
-    return run_experiment(args, config, make_grid_env(args.env, random=args.random), jax, jnp, np, runner)
+    return run_experiment(args, config, env, jax, jnp, np, runner)
 
 
 if __name__ == "__main__":

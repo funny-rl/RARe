@@ -19,11 +19,13 @@ COMMON_FIELDS = {
 SKIP_FIELDS = {"max_skip", "skip_replay_capacity", "skip_learning_rate", "use_data_aug"}
 ALGORITHM_FIELDS = {
     "DDQN": set(), "TempoRL": SKIP_FIELDS,
+    "TAACDiscrete": {"temperature", "actor_temperature", "target_entropy_delta",
+                     "target_actor_entropy_ratio", "compare_horizon"},
     "UTE": SKIP_FIELDS | {"ensemble_size", "uncertainty_factor", "bootstrap_probability"},
     "RARe": SKIP_FIELDS | {"max_eval_epsilon", "min_eval_epsilon", "eval_epsilon_cutoff",
                             "eval_learning_rate", "rare_q_mode", "shared_target_epsilon_source"},
 }
-ENVIRONMENTS = {"CliffWalking", "Bridge", "ZigZag"}
+ENVIRONMENTS = {"CliffWalking", "Bridge", "ZigZag", "WindShift"}
 EVALUATION_FIELDS = {"interval_fraction", "interval_steps", "episodes", "random_episodes", "risk_diagnostics"}
 
 
@@ -141,11 +143,17 @@ def resolve_config(path, environment, algorithm, overrides):
     _check_keys(overrides, COMMON_FIELDS | ALGORITHM_FIELDS[algorithm], "command line")
     common.update({key: value for key, value in overrides.items() if key in COMMON_FIELDS})
     specific.update({key: value for key, value in overrides.items() if key in ALGORITHM_FIELDS[algorithm]})
+    if algorithm == "TAACDiscrete":
+        ignored = {"max_epsilon", "min_epsilon", "epsilon_decay_steps", "epsilon_schedule"} & overrides.keys()
+        if ignored:
+            raise ValueError(f"TAACDiscrete samples its categorical actor; epsilon settings are unsupported: {sorted(ignored)}")
+        common["max_epsilon"] = common["min_epsilon"] = 0.0
+        common["epsilon_decay_steps"] = None
     if common.get("replay_capacity") is None:
         common["replay_capacity"] = common["total_steps"]
-    if common.get("epsilon_decay_steps") is None:
+    if common.get("epsilon_decay_steps") is None and algorithm != "TAACDiscrete":
         common["epsilon_decay_steps"] = max(common["total_steps"] - common["warmup_steps"], 1)
-    if algorithm != "DDQN":
+    if algorithm in ("TempoRL", "UTE", "RARe"):
         if specific.get("skip_replay_capacity") is None:
             specific["skip_replay_capacity"] = 3 * common["total_steps"]
         for name in ("skip_learning_rate", "eval_learning_rate"):
