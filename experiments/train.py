@@ -36,12 +36,24 @@ def parse_evaluation_episodes(value):
         raise argparse.ArgumentTypeError("use a positive episode count or 'all'")
     return episodes
 
+
+def parse_switch_steps(value):
+    try:
+        steps = tuple(int(part) for part in value.split(","))
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("use comma-separated positive switch steps") from error
+    if not steps or any(step <= 0 for step in steps) or any(a >= b for a, b in zip(steps, steps[1:])):
+        raise argparse.ArgumentTypeError("switch steps must be strictly increasing positive integers")
+    return steps
+
 def parser():
     result = argparse.ArgumentParser(allow_abbrev=False, description="JAX grid DDQN/TempoRL/UTE/RARe/TAACDiscrete with common and algorithm-specific YAML settings. Physical GPUs 0..3 only.")
     result.add_argument("--env", choices=("CliffWalking", "Bridge", "ZigZag", "WindShift"), default="CliffWalking")
     result.add_argument("--random", action="store_true", help="resample start/goal at every reset")
     result.add_argument("--wind-switch-interval", type=int,
                         help="WindShift: global primitive steps per direction; 0 keeps a fixed direction")
+    result.add_argument("--wind-switch-steps", type=parse_switch_steps,
+                        help="WindShift: explicit global steps for direction reversals, e.g. 20000,30000")
     result.add_argument("--wind-probability", type=float, help="WindShift: gust probability; default 0.5")
     result.add_argument("--wind-layout", choices=("descending", "ascending"),
                         help="WindShift: top-left to bottom-right or its vertical mirror")
@@ -128,15 +140,16 @@ def main(argv=None):
         from envs.grid import make_grid_env, make_wind_shift_env
         from runners import (DDQNRunConfig, DDQNRunner, SkipRunConfig, SkipRunner,
                              TAACDiscreteRunConfig, TAACDiscreteRunner)
-        wind_options = ("wind_switch_interval", "wind_probability", "wind_layout",
+        wind_options = ("wind_switch_interval", "wind_switch_steps", "wind_probability", "wind_layout",
                         "wind_initial", "wind_observation")
         if args.env == "WindShift":
             if args.random:
                 raise ValueError("WindShift uses fixed corner endpoints; --random is not supported")
-            if args.wind_switch_interval is None:
-                raise ValueError("WindShift requires --wind-switch-interval (use 0 for the stationary control)")
+            if args.wind_switch_interval is None and args.wind_switch_steps is None:
+                raise ValueError("WindShift requires --wind-switch-interval or --wind-switch-steps")
             env = make_wind_shift_env(
-                switch_interval=args.wind_switch_interval,
+                switch_interval=args.wind_switch_interval or 0,
+                switch_steps=args.wind_switch_steps or (),
                 wind_probability=0.5 if args.wind_probability is None else args.wind_probability,
                 layout=args.wind_layout or "descending", initial_wind=args.wind_initial or "north",
                 observe_wind=args.wind_observation == "visible",

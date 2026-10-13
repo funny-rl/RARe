@@ -14,6 +14,7 @@ from .core import GridEnv, GridSpec, observe as observe_grid, reset as reset_gri
 class WindShiftSpec(GridSpec):
     wind_probability: float = 0.5
     switch_interval: int = 0
+    switch_steps: tuple[int, ...] = ()
     initial_wind: str = "north"
     observe_wind: bool = False
 
@@ -23,6 +24,12 @@ class WindShiftSpec(GridSpec):
             raise ValueError("wind_probability must be in [0, 1]")
         if type(self.switch_interval) is not int or self.switch_interval < 0:
             raise ValueError("switch_interval must be a nonnegative integer; zero disables shifts")
+        if (type(self.switch_steps) is not tuple
+                or any(type(step) is not int or step <= 0 for step in self.switch_steps)
+                or any(left >= right for left, right in zip(self.switch_steps, self.switch_steps[1:]))):
+            raise ValueError("switch_steps must be strictly increasing positive integers")
+        if self.switch_interval and self.switch_steps:
+            raise ValueError("choose either switch_interval or switch_steps")
         if self.initial_wind not in ("north", "south"):
             raise ValueError("initial_wind must be 'north' or 'south'")
         if type(self.observe_wind) is not bool:
@@ -55,8 +62,11 @@ class WindShiftEnv(GridEnv):
         return (cells + int(self.spec.observe_wind),)
 
     def wind_south(self, global_steps: jax.Array) -> jax.Array:
-        phase = (global_steps // self.spec.switch_interval if self.spec.switch_interval
-                 else jnp.zeros_like(global_steps))
+        if self.spec.switch_steps:
+            phase = jnp.sum(jnp.asarray(self.spec.switch_steps) <= global_steps[..., None], axis=-1)
+        else:
+            phase = (global_steps // self.spec.switch_interval if self.spec.switch_interval
+                     else jnp.zeros_like(global_steps))
         return jnp.logical_xor(self.spec.initial_wind == "south", (phase & 1) == 1)
 
     def observe(self, state: WindShiftState) -> jax.Array:
@@ -103,7 +113,8 @@ class WindShiftEnv(GridEnv):
         return self.observe(next_state), next_state, reward, terminated, truncated, info
 
 
-def make_wind_shift_env(*, switch_interval: int, wind_probability: float = 0.5,
+def make_wind_shift_env(*, switch_interval: int = 0, switch_steps: tuple[int, ...] = (),
+                        wind_probability: float = 0.5,
                         layout: str = "descending", initial_wind: str = "north",
                         observe_wind: bool = False) -> WindShiftEnv:
     """Create one of two vertically mirrored corner-to-corner layouts."""
@@ -118,7 +129,7 @@ def make_wind_shift_env(*, switch_interval: int, wind_probability: float = 0.5,
         name="WindShift", shape=(5, 9), starts=(start,), goals=(goal,),
         pits=tuple((row, col) for row in (0, 4) for col in range(2, 7)),
         walls=walls, max_steps=100, wind_probability=wind_probability,
-        switch_interval=switch_interval, initial_wind=initial_wind,
+        switch_interval=switch_interval, switch_steps=switch_steps, initial_wind=initial_wind,
         observe_wind=observe_wind,
     )
     return WindShiftEnv(spec)

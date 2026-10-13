@@ -98,9 +98,12 @@ env = make_wind_shift_env(switch_interval=250, layout="descending",
 ```
 
 Wind direction reverses after every `switch_interval` primitive training steps,
-independent of episode resets. `switch_interval=0` disables reversals for a
-stationary control. The direction used at global step `t` is the initial
+independent of episode resets. With no explicit `switch_steps`,
+`switch_interval=0` disables reversals for a stationary control. The direction
+used at global step `t` is the initial
 direction for `0 <= t < K`, its opposite for `K <= t < 2K`, and so on.
+For a finite schedule, use `switch_steps=(20000, 30000, 40000, 50000)` with
+`switch_interval=0`; each listed global step reverses the direction once.
 Training resets preserve the current global step. Evaluations start their own
 counterfactual rollout at the checkpoint's training step; they never advance
 the training clock. The deterministic-grid exact risk diagnostic is disabled
@@ -119,6 +122,9 @@ python -m experiments.train --env WindShift --algorithm RARe \
   --wind-switch-interval 250 --wind-layout descending --wind-initial north \
   --wind-observation hidden --platform cpu --wandb-mode disabled
 ```
+
+Use `--wind-switch-steps 20000,30000,40000,50000` in place of
+`--wind-switch-interval` to compare schedules with a shared first change point.
 
 ## Discrete TAAC baseline
 

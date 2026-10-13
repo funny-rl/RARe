@@ -19,6 +19,20 @@ Each command runs in the foreground. `0:20` means seeds 0 through 19,
 batched on the selected GPU. Only physical GPUs 0,1,2,3 are allowed.
 If omitted, GPU and seeds follow the unified CLI defaults: GPU 0 and seed 0.
 
+The visible-wind nonstationary comparison has its own resumable launcher:
+
+```bash
+bash /data/RARe/scripts/grid/windshift_campaign.sh
+python /data/RARe/scripts/grid/analyze_windshift.py /data/RARe/runs/campaigns/windshift-visible-60k
+```
+
+It compares 0, 2 and 4 direction reversals at a common first switch on step
+20,000. All six variants use 20 matched seeds, four balanced layout/initial-wind
+blocks, 60,000 training steps, 3,000 warmup steps and 20 stochastic evaluation
+episodes every 1,000 steps. It uses physical GPUs 0–3, logs each seed to
+`RARe-WindShift` and saves no models. The analysis writes a local report and
+success-rate curves; it checks every batch and the identical pre-switch records.
+
 Fixed Grid launchers use the YAML budgets: CliffWalking 15,000, Bridge 25,000,
 and ZigZag 35,000 primitive steps per seed. Random Grid launchers set
 CliffWalking to 50,000, Bridge to 150,000 and ZigZag to 200,000 steps per seed. These
