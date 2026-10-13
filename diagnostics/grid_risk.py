@@ -127,20 +127,8 @@ def optimal_bellman_residual(env, gamma, q_values):
     return jnp.maximum(jnp.max(jnp.abs(q_values[:, 0])), jnp.max(jnp.abs(q_values[:, 1:] - targets)))
 
 
-def score_decision_risks(env, q_values, optimal_q_values, policy_probs, state, action, predictions, gamma):
-    """Score every length, including unselected and post-termination labels.
-
-    The exact optimal-control baseline minus predicted skip value, divided by
-    gamma**j, is the skip network's implied risk. It is not a learned risk head.
-    The baseline cancels in implied-minus-true risk, so its absolute error is
-    exactly skip-value error / gamma**j at every nonterminal endpoint.
-    Terminal prefixes stop accumulating reward; all later labels share the
-    same exact skip value and zero true risk. Their value errors still count;
-    the evaluation observer excludes them from risk-error aggregation.
-    """
-    goal_index = jnp.argmax(env.params.goals == state.goal)
-    discounts = jnp.asarray(gamma, predictions.dtype) ** jnp.arange(1, predictions.shape[0] + 1)
-
+def _decision_trace(env, state, action, predictions, gamma):
+    """Compute the environment's repeated-action endpoints once per decision."""
     def repeat(carry, index):
         current, prefix, ended = carry
 
@@ -149,21 +137,36 @@ def score_decision_risks(env, q_values, optimal_q_values, policy_probs, state, a
             return following, prefix + gamma ** index * reward, terminated | truncated
 
         following, prefix, ended = jax.lax.cond(ended, lambda _: carry, advance, operand=None)
-        remaining = jnp.maximum(env.params.max_steps - following.steps, 0)
-        endpoint_q = q_values[goal_index, remaining, following.position]
-        endpoint_optimal_q = optimal_q_values[goal_index, remaining, following.position]
-        endpoint_q = jnp.where(ended, 0., endpoint_q)
-        endpoint_optimal_q = jnp.where(ended, 0., endpoint_optimal_q)
-        maximum = jnp.max(endpoint_optimal_q)
-        expected = jnp.sum(policy_probs[goal_index, following.position] * endpoint_q)
-        discount = discounts[index]
-        values = (prefix + discount * expected, prefix + discount * maximum, maximum - expected, ended)
-        return (following, prefix, ended), values
+        return (following, prefix, ended), (following.position, following.steps, prefix, ended)
 
-    _, (expected, maximum, true_risks, ended) = jax.lax.scan(
+    _, trace = jax.lax.scan(
         repeat, (state, jnp.asarray(0., predictions.dtype), jnp.bool_(False)),
         jnp.arange(predictions.shape[0]),
     )
+    return trace
+
+
+def score_decision_risks(env, q_values, optimal_q_values, policy_probs, state, action, predictions, gamma,
+                         *, trace=None):
+    """Score all lengths; share the exact endpoint trace across reference policies.
+
+    The optimal baseline cancels in estimated-minus-true risk. Terminal
+    prefixes stop accumulating reward; later labels retain value errors but
+    are excluded from risk-error aggregation.
+    """
+    if trace is None:
+        trace = _decision_trace(env, state, action, predictions, gamma)
+    positions, steps, prefixes, ended = trace
+    goal_index = jnp.argmax(env.params.goals == state.goal)
+    remaining = jnp.maximum(env.params.max_steps - steps, 0)
+    endpoint_q = jnp.where(ended[:, None], 0., q_values[goal_index, remaining, positions])
+    endpoint_optimal_q = jnp.where(ended[:, None], 0., optimal_q_values[goal_index, remaining, positions])
+    endpoint_maximum = jnp.max(endpoint_optimal_q, axis=-1)
+    endpoint_expected = jnp.sum(policy_probs[goal_index, positions] * endpoint_q, axis=-1)
+    discounts = jnp.asarray(gamma, predictions.dtype) ** jnp.arange(1, predictions.shape[0] + 1)
+    expected = prefixes + discounts * endpoint_expected
+    maximum = prefixes + discounts * endpoint_maximum
+    true_risks = endpoint_maximum - endpoint_expected
     estimated = (maximum - predictions) / discounts
     return DecisionRisks(expected, maximum, true_risks, estimated,
                          jnp.abs(predictions - expected), jnp.abs(estimated - true_risks), ended)
@@ -197,13 +200,14 @@ def evaluate_grid_risk(env, online_params, skip_params, policy_params, epsilon, 
 
     def observe_decision(totals, observation, state, action, predictions):
         del observation
+        trace = _decision_trace(env, state, action, predictions, gamma)
         errors = score_decision_risks(env, q_values, optimal_q_values, probabilities,
-                                      state, action, predictions, gamma)
+                                      state, action, predictions, gamma, trace=trace)
         if target_policy_params is None:
             return accumulate(totals, errors)
         target_errors = score_decision_risks(
             env, target_q_values, optimal_q_values, target_probabilities,
-            state, action, predictions, gamma,
+            state, action, predictions, gamma, trace=trace,
         )
         return (accumulate(totals[0], errors), accumulate(totals[1], target_errors))
 
