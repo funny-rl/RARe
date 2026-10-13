@@ -309,6 +309,7 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
                     "episode_return_mean": float(metrics.episode_return[index][ended].mean()) if ended.any() else None,
                     "partial_episode_return": float(partial_return), "partial_episode_length": tracker.lengths[index],
                     "replay_size": int(replay_size),
+                    "epsilon": 1. if int(steps) < config.warmup_steps else float(epsilon[index]),
                     "next_epsilon": 1. if int(steps) < config.warmup_steps else float(epsilon[index]),
                     "next_learning_rate": float(rate[index] if np.ndim(rate) else rate),
                     "chunk_seconds": chunk_seconds,
@@ -327,6 +328,7 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
                         next_skip_learning_rate=float(skip_rates[index] if np.ndim(skip_rates) else skip_rates),
                     )
                 if algorithm == "RARe":
+                    records[-1]["expected_policy_epsilon"] = float(eval_epsilons[index])
                     records[-1]["next_evaluation_epsilon"] = float(eval_epsilons[index])
                 if separate_rare:
                     records[-1].update(
@@ -374,6 +376,10 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
                 evaluation_rows, evaluation_episodes = evaluation_records(
                     jax, results, keys, args.seeds, end_step, cases=evaluation_cases, key_data=key_data,
                 )
+                for index, row in enumerate(evaluation_rows):
+                    row["policy_epsilon"] = 0.0
+                    if risk_enabled:
+                        row["risk_epsilon"] = float(snapshot["risk_epsilon"][index])
                 if risk_enabled:
                     from diagnostics.grid_risk import aggregate_risk_errors
                     detail_rows = []

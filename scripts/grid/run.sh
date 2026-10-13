@@ -26,7 +26,8 @@ case "$grid_mode" in
     random)
         case "$grid_env" in
             CliffWalking) grid_steps=50000 ;;
-            Bridge|ZigZag) grid_steps=100000 ;;
+            Bridge) grid_steps=100000 ;;
+            ZigZag) grid_steps=200000 ;;
         esac
         mode_args=(--random --total-steps "$grid_steps")
         grid_project="RARe-R$grid_env"

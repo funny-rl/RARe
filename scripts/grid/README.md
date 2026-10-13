@@ -20,7 +20,7 @@ If omitted, GPU and seeds follow the unified CLI defaults: GPU 0 and seed 0.
 
 Fixed Grid launchers use the YAML budgets: CliffWalking 15,000, Bridge 23,000,
 and ZigZag 30,000 primitive steps per seed. Random Grid launchers set
-CliffWalking to 50,000 and Bridge/ZigZag to 100,000 steps per seed. These
+CliffWalking to 50,000, Bridge to 100,000 and ZigZag to 200,000 steps per seed. These
 launcher defaults can be changed with an explicit `--total-steps N` argument.
 The current 20-seed campaign passed `--model-save-interval 0` to every run.
 
@@ -76,6 +76,10 @@ using the episode's ending `env_step` on the same axis as training summaries.
 `env_step` is sent only as axis data; its automatic chart and summary are disabled.
 Episode and summary rows are written in step order and every completed episode
 is retained. Local `episodes.jsonl` keeps the individual raw records.
+`train/epsilon` records the epsilon-greedy action-selection rate for the next
+decision at each logged step (1 during warmup). RARe also records its separate
+`train/expected_policy_epsilon`. Greedy evaluation logs `eval/policy_epsilon=0`;
+Grid risk diagnostics log their counterfactual rate as `eval/risk_epsilon`.
 Batched GPU training stays simultaneous: one command
 finishes once all selected seeds reach the per-seed interaction budget.
 Other W&B settings follow the unified CLI, including its current online
@@ -110,7 +114,8 @@ at 3300 with interval 300. Fractional offsets round up and duplicate points
 are removed. All-warmup budgets have no evaluation. Previously completed
 runs retain their original checkpoints and are never rewritten.
 With the Random Grid launcher budgets, RCliffWalking starts at 2500 and ends
-at 50000; RBridge and RZigZag start at 4000 and end at 100000.
+at 50000; RBridge starts at 4000 and ends at 100000; RZigZag starts at 5000
+and ends at 200000.
 Fixed environments evaluate one episode per checkpoint. Random environments
 enumerate every start-goal pair exactly once: RCliffWalking evaluates 16 pairs,
 RBridge and RZigZag each evaluate 256. The model, transitions and greedy policy
