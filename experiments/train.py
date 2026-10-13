@@ -72,8 +72,7 @@ def parser():
     result.add_argument("--wandb-name", help="W&B run-name prefix; default: <algorithm>-<environment>-<timestamp>-<unique id>, with RARe-sh/RARe-se; each seed adds -seed<N>")
     for name in ("max_skip", "skip_replay_capacity", "ensemble_size"):
         result.add_argument("--" + name.replace("_", "-"), type=int, default=argparse.SUPPRESS)
-    for name in ("skip_learning_rate", "uncertainty_factor", "bootstrap_probability", "max_eval_epsilon",
-                 "min_eval_epsilon", "eval_epsilon_cutoff", "eval_learning_rate"):
+    for name in ("skip_learning_rate", "uncertainty_factor", "bootstrap_probability", "eval_learning_rate"):
         result.add_argument("--" + name.replace("_", "-"), type=float, default=argparse.SUPPRESS)
     result.add_argument("--data-aug", dest="use_data_aug", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
     result.add_argument("--rare-q-mode", choices=("separate", "shared"), default=argparse.SUPPRESS,

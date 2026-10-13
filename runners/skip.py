@@ -29,9 +29,6 @@ class SkipRunConfig(DDQNRunConfig):
     ensemble_size: int = 5
     uncertainty_factor: float = -1.5
     bootstrap_probability: float = .5
-    max_eval_epsilon: float = .1
-    min_eval_epsilon: float = .01
-    eval_epsilon_cutoff: float = 1.
     eval_learning_rate: float | None = None
     rare_q_mode: str = "separate"
 
@@ -58,10 +55,6 @@ class SkipRunConfig(DDQNRunConfig):
             raise ValueError("UTE requires ensemble_size >= 2 for sample standard deviation")
         if not 0 < self.bootstrap_probability <= 1:
             raise ValueError("bootstrap_probability must lie in (0,1]")
-        if not 0 <= self.min_eval_epsilon <= self.max_eval_epsilon <= 1:
-            raise ValueError("evaluation epsilons must satisfy 0 <= min <= max <= 1")
-        if not math.isfinite(self.eval_epsilon_cutoff) or self.eval_epsilon_cutoff <= 0:
-            raise ValueError("eval_epsilon_cutoff must be finite and positive")
 
 
 class SkipRunState(NamedTuple):
@@ -136,10 +129,9 @@ class SkipRunner(DDQNRunner):
         )
 
     def _evaluation_epsilon(self, steps):
-        progress = jnp.clip((steps - self.config.warmup_steps) / (
-            max(self.config.total_steps - self.config.warmup_steps, 1) * self.config.eval_epsilon_cutoff
-        ), 0., 1.)
-        return self.config.max_eval_epsilon - progress * (self.config.max_eval_epsilon - self.config.min_eval_epsilon)
+        # One schedule defines both the behavior policy and RARe's target
+        # policy, including custom decay settings and uniform warmup.
+        return self._epsilon(steps)
 
     def _rate(self, steps, initial):
         initial = self.config.learning_rate if initial is None else initial
@@ -212,7 +204,8 @@ class SkipRunner(DDQNRunner):
 
     def _skip_bootstrap(self, learner, evaluation, observations, steps):
         if self.config.algorithm == "RARe":
-            # Shared reuses DDQN Q; separate uses its own Expected SARSA critic.
+            # Shared follows behavior Q; Separate retains its own evaluation
+            # policy and critic while using the same epsilon schedule.
             critic = evaluation if self.config.rare_q_mode == "separate" else learner
             probabilities = epsilon_greedy_probs(apply_q(critic.online_params, observations),
                                                   self._evaluation_epsilon(steps))

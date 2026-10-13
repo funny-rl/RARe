@@ -12,6 +12,8 @@ from .targets import update_target_params
 
 
 def evaluation_loss(online_params, target_params, batch, gamma, epsilon):
+    # Separate RARe retains its own greedy policy; only its epsilon schedule
+    # is tied to the behavior schedule.
     probabilities = epsilon_greedy_probs(apply_q(online_params, batch.next_observations), epsilon)
     values = expected_bootstrap(probabilities, apply_q(target_params, batch.next_observations))
     targets = jax.lax.stop_gradient(batch.rewards + jnp.where(
@@ -24,7 +26,7 @@ def evaluation_loss(online_params, target_params, batch, gamma, epsilon):
 
 
 def evaluation_train_step(state, batch, gamma, epsilon, learning_rate, training_steps, **target_settings):
-    """Update the evaluation critic before constructing RARe skip targets."""
+    """Update the separate evaluation critic before RARe skip targets."""
     loss, gradients = jax.value_and_grad(evaluation_loss)(
         state.online_params, state.target_params, batch, gamma, epsilon,
     )

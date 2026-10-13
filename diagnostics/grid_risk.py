@@ -33,6 +33,8 @@ class GridRiskEvaluation(NamedTuple):
     totals: RiskTotals
     epsilon: jax.Array
     bellman_residual: jax.Array
+    target_totals: RiskTotals | None = None
+    target_bellman_residual: jax.Array | None = None
 
 
 def _grid_model(env):
@@ -66,6 +68,9 @@ def grid_policy_probabilities(env, policy_params, epsilon):
 def solve_grid_policy_values(env, policy_probs, gamma):
     """Return Q[goal, remaining_steps, position, action], including Q_0=0.
 
+    Recompute this table for each checkpoint's frozen epsilon policy. Q^pi
+    takes the indexed first action, then follows that same policy; the later
+    max baseline in score_decision_risks changes only the first action.
     Policy probabilities are stationary because current Grid observations do
     not encode elapsed time. Values retain time to honor the absorbing timeout.
     No learned critic, sampled trajectory, tolerance or iterative convergence
@@ -135,8 +140,9 @@ def score_decision_risks(env, q_values, policy_probs, state, action, predictions
 
 
 def evaluate_grid_risk(env, online_params, skip_params, policy_params, epsilon, key, *,
-                       gamma, algorithm, episodes, uncertainty_factor=-1.5, initial_states=None):
-    """Attach read-only measurements to greedy decision points, without traces."""
+                       gamma, algorithm, episodes, uncertainty_factor=-1.5, initial_states=None,
+                       target_policy_params=None):
+    """Score behavior risk, and optionally RARe-se's distinct target-policy risk."""
     if algorithm not in ("TempoRL", "UTE", "RARe"):
         raise ValueError("grid risk is only defined here for skip algorithms")
     if not 0 < gamma <= 1:
@@ -146,25 +152,41 @@ def evaluate_grid_risk(env, online_params, skip_params, policy_params, epsilon, 
         raise ValueError("gamma**max_skip underflows; reduce max_skip or disable risk diagnostics")
     probabilities = grid_policy_probabilities(env, policy_params, epsilon)
     q_values = solve_grid_policy_values(env, probabilities, gamma)
+    if target_policy_params is not None:
+        target_probabilities = grid_policy_probabilities(env, target_policy_params, epsilon)
+        target_q_values = solve_grid_policy_values(env, target_probabilities, gamma)
     zero = jnp.zeros(max_skip, dtype=q_values.dtype)
     empty = RiskTotals(zero, zero, jnp.zeros(max_skip, jnp.int32), jnp.zeros(max_skip, jnp.int32))
+
+    def accumulate(totals, errors):
+        return RiskTotals(totals.value_error_sum + errors.value_errors,
+                          totals.risk_error_sum + jnp.where(errors.ended, 0., errors.risk_errors),
+                          totals.counts + 1, totals.ended_counts + errors.ended.astype(jnp.int32))
 
     def observe_decision(totals, observation, state, action, predictions):
         del observation
         errors = score_decision_risks(env, q_values, probabilities, state, action, predictions, gamma)
-        return RiskTotals(totals.value_error_sum + errors.value_errors,
-                          totals.risk_error_sum + jnp.where(errors.ended, 0., errors.risk_errors),
-                          totals.counts + 1, totals.ended_counts + errors.ended.astype(jnp.int32))
+        if target_policy_params is None:
+            return accumulate(totals, errors)
+        target_errors = score_decision_risks(
+            env, target_q_values, target_probabilities, state, action, predictions, gamma,
+        )
+        return (accumulate(totals[0], errors), accumulate(totals[1], target_errors))
 
     result = evaluate_policy(
         env, online_params, key, episodes=episodes, algorithm=algorithm,
         outcome_fn=env.episode_outcome, skip_params=skip_params,
         uncertainty_factor=uncertainty_factor, initial_states=initial_states,
-        decision_observer=observe_decision, initial_diagnostics=empty,
+        decision_observer=observe_decision,
+        initial_diagnostics=empty if target_policy_params is None else (empty, empty),
     )
     totals = jax.tree.map(lambda values: values.sum(axis=0), result.diagnostics)
-    return GridRiskEvaluation(result.episodes, totals, epsilon,
-                              policy_bellman_residual(env, probabilities, gamma, q_values))
+    behavior_totals, target_totals = (totals, None) if target_policy_params is None else totals
+    target_residual = (None if target_policy_params is None else
+                       policy_bellman_residual(env, target_probabilities, gamma, target_q_values))
+    return GridRiskEvaluation(result.episodes, behavior_totals, epsilon,
+                              policy_bellman_residual(env, probabilities, gamma, q_values),
+                              target_totals, target_residual)
 
 
 def aggregate_risk_errors(result):
@@ -199,3 +221,13 @@ def aggregate_risk_errors(result):
                             "value_mae": value_maes[index], "risk_mae": risk_maes[index]}
                            for index, count in enumerate(counts)]}
     return metrics, details
+
+
+def aggregate_target_risk_errors(result):
+    """Expose RARe-se calibration to its own pi_e without mixing reference policies."""
+    if result.target_totals is None:
+        raise ValueError("target-policy risk was not measured")
+    metrics, details = aggregate_risk_errors(result._replace(
+        totals=result.target_totals, bellman_residual=result.target_bellman_residual,
+    ))
+    return {f"target_{name}": value for name, value in metrics.items()}, details

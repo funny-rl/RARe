@@ -19,7 +19,7 @@ class WandbTracker:
 
         config = {key: value for key, value in metadata.items() if key in (
             "algorithm", "seeds", "config", "environment", "execution", "runtime",
-            "metrics_scope", "protocol", "rng_algorithm", "model_saving", "evaluation",
+            "metrics_scope", "metric_definitions", "protocol", "rng_algorithm", "model_saving", "evaluation",
         )}
         config["source_sha256"] = metadata["source"]["sha256"]
         config["git_commit"] = metadata["source"]["git_commit"]

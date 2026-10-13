@@ -49,8 +49,11 @@ def policy_models(state, algorithm, *, with_risk=False):
     if algorithm != "DDQN":
         models["skip"] = state.skip_learner.params
     if with_risk:
-        models["risk_policy"] = (state.evaluation.online_params if algorithm == "RARe" and state.evaluation is not None
-                                 else state.learner.online_params)
+        # True Risk always measures the policy that actually chooses actions.
+        models["risk_policy"] = state.learner.online_params
+        if algorithm == "RARe" and state.evaluation is not None:
+            # Separate RARe also receives its own policy for target calibration.
+            models["target_risk_policy"] = state.evaluation.online_params
     return models
 
 
@@ -89,6 +92,8 @@ def compiled_chunk_steps(total_steps, requested, save_steps, evaluation_steps, s
 
 
 def run_experiment(args, config, env, jax, jnp, np, Runner):
+    from .metric_definitions import METRIC_DEFINITIONS
+
     root = Path(__file__).resolve().parents[1]
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     algorithm = args.algorithm
@@ -132,6 +137,7 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
         "command": [sys.executable, "-m", "experiments.train", *args.launch_argv],
         "working_directory": str(root),
         "metrics_scope": "training and separate frozen greedy-policy evaluation" if evaluation_steps else "training",
+        "metric_definitions": METRIC_DEFINITIONS,
         "evaluation": {
             **asdict(args.evaluation_config), "enabled": bool(evaluation_steps),
             "requested_episodes": requested_episodes, "episodes": evaluation_episode_count,
@@ -145,8 +151,10 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
             "risk": {
                 "enabled": risk_enabled, "requested": args.evaluation_config.risk_diagnostics,
                 "scope": "GridEnv skip algorithms only", "reference": "exact finite-horizon Q^pi",
-                "policy_source": "evaluation_online" if separate_rare else "base_online",
-                "epsilon_source": "evaluation_epsilon" if algorithm == "RARe" else "behavior_epsilon_including_warmup",
+                "policy_source": "base_online_for_every_algorithm",
+                "epsilon_source": "behavior_epsilon_including_warmup_for_every_algorithm",
+                "separate_rare_target_policy": "evaluation_online_with_the_same_epsilon",
+                "separate_rare_target_metrics": "target_*; distinct pi_e, never pooled with behavior-risk errors",
                 "policy_frozen_per_checkpoint": True, "state_distribution": "own greedy evaluation decision points",
                 "lengths": "all 1..max_skip at every decision, including unselected and terminal lengths",
                 "true_risk": "max_b Q^pi(s_j,b) - sum_b pi(b|s_j) Q^pi(s_j,b)",
@@ -178,7 +186,9 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
         if separate_rare:
             metadata["model_saving"]["contents"].extend(["evaluation_online_params", "evaluation_target_params"])
         metadata["protocol"].update(
-            rare_q_mode=config.rare_q_mode, evaluation_policy="own_online_epsilon_greedy", evaluation_ensemble_size=1,
+            rare_q_mode=config.rare_q_mode,
+            evaluation_policy="own_online_epsilon_greedy" if separate_rare else "base_online_epsilon_greedy",
+            evaluation_ensemble_size=1,
             skip_bootstrap_critic="separate_expected_sarsa" if separate_rare else "base_ddqn",
         )
     if hasattr(args, "configuration"):
@@ -229,6 +239,7 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
                     gamma=config.gamma, algorithm=algorithm, episodes=evaluation_episode_count,
                     uncertainty_factor=getattr(config, "uncertainty_factor", -1.5),
                     initial_states=evaluation_initial_states,
+                    target_policy_params=models.get("target_risk_policy"),
                 ))).lower(policy_models(state, algorithm, with_risk=True), state.rngs.evaluation,
                           state.training_steps.astype(jnp.float32)).compile()
             else:
@@ -261,9 +272,10 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
                 if separate_rare:
                     snapshot["evaluation_learning_rate"] = runner._rate(updated.training_steps, config.eval_learning_rate)
             if risk_enabled:
-                snapshot["risk_epsilon"] = (snapshot["evaluation_epsilon"] if algorithm == "RARe" else
-                                             jnp.where(updated.training_steps < config.warmup_steps,
-                                                       1., snapshot["epsilon"]))
+                # Greedy evaluation selects visited states, but this frozen
+                # counterfactual policy matches the current training action policy.
+                snapshot["risk_epsilon"] = jnp.where(updated.training_steps < config.warmup_steps,
+                                                     1., snapshot["epsilon"])
             return updated, metrics, snapshot
 
         execute = jax.jit(jax.vmap(execute_chunk, in_axes=(0, None)), donate_argnums=(0,)).lower(
@@ -381,10 +393,16 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
                     if risk_enabled:
                         row["risk_epsilon"] = float(snapshot["risk_epsilon"][index])
                 if risk_enabled:
-                    from diagnostics.grid_risk import aggregate_risk_errors
+                    from diagnostics.grid_risk import aggregate_risk_errors, aggregate_target_risk_errors
                     detail_rows = []
                     for index, seed in enumerate(args.seeds):
-                        risk_metrics, details = aggregate_risk_errors(jax.tree.map(lambda value: value[index], risk_results))
+                        result = jax.tree.map(lambda value: value[index], risk_results)
+                        risk_metrics, details = aggregate_risk_errors(result)
+                        details["policy_source"] = "base_online"
+                        if separate_rare:
+                            target_metrics, target_details = aggregate_target_risk_errors(result)
+                            risk_metrics.update(target_metrics)
+                            details["target_policy"] = dict(target_details, policy_source="evaluation_online")
                         evaluation_rows[index].update(risk_metrics)
                         detail_rows.append({"seed": seed, "env_step": end_step, **details})
                     logger.append("risk_diagnostics", detail_rows)

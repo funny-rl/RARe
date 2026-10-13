@@ -19,7 +19,7 @@ batched on the selected GPU. Only physical GPUs 0,1,2,3 are allowed.
 If omitted, GPU and seeds follow the unified CLI defaults: GPU 0 and seed 0.
 
 Fixed Grid launchers use the YAML budgets: CliffWalking 15,000, Bridge 23,000,
-and ZigZag 30,000 primitive steps per seed. Random Grid launchers set
+and ZigZag 35,000 primitive steps per seed. Random Grid launchers set
 CliffWalking to 50,000, Bridge to 150,000 and ZigZag to 200,000 steps per seed. These
 launcher defaults can be changed with an explicit `--total-steps N` argument.
 For Random Bridge and ZigZag, launcher defaults keep primitive replay at
@@ -35,14 +35,15 @@ then an optional `--config` YAML file and explicit CLI overrides.
 
 RARe supports `--rare-q-mode separate|shared` on all six environment launchers.
 The default is `separate`, also set by `algorithms.RARe.rare_q_mode` in YAML.
-Separate learns an auxiliary Expected SARSA critic. Shared reuses the base
-DDQN online Q for epsilon-greedy action probabilities and base target Q for
-the expected skip bootstrap, matching the legacy `use_es_target=false` path.
+Separate learns an auxiliary Expected SARSA critic for its own evaluation policy.
+Separate uses that critic's own greedy actions to define its expected-target
+policy. Shared uses the base DDQN Q for both greedy actions and target values.
 The base critic keeps its DDQN objective in both modes. Shared has no auxiliary
 network, optimizer, auxiliary replay sample or auxiliary-loss log; its base Q
 learning rate is `learning_rate`, and `eval_learning_rate` applies only to
-Separate. Both retain the independent `max_eval_epsilon`, `min_eval_epsilon`
-and `eval_epsilon_cutoff` schedule for the expected skip policy.
+Separate. Both use the same epsilon schedule as the training behavior policy:
+1 during warmup, then 1 to 0 over the configured decay steps. Equal epsilon
+does not make Separate's distinct greedy policy identical to behavior.
 
 ```bash
 bash /data/RARe/scripts/grid/cliffwalking/rare.sh --gpu 0 --seeds 0:20 --rare-q-mode shared
@@ -65,7 +66,7 @@ bash /data/RARe/scripts/grid/rzigzag/rare.sh \
 ```
 
 W&B projects are fixed to `RARe-CliffWalking`, `RARe-Bridge`, `RARe-ZigZag`,
-`RARe-RCliffWalking`, `RARe-RBridge`, `RARe-RZigZag`. All four algorithms
+`RARe-RCliffWalking`, `RARe-RBridge`, `RARe-RZigZag`. All five model variants
 for an environment share that project. A launcher rejects `--wandb-project`
 overrides; direct unified CLI calls also reject a mismatching project name.
 Each seed has its own W&B run, grouped by algorithm (DDQN, TempoRL, UTE,
@@ -114,9 +115,9 @@ Default evaluation starts after warmup. The interval remains 1% of the total
 primitive-step budget, anchored at warmup end, and the final step is included.
 For CliffWalking this gives 2150,2300,...,14900,15000 with total_steps=15000
 and warmup_steps=2000. Bridge starts at 3230 with interval 230; ZigZag starts
-at 3300 with interval 300. Fractional offsets round up and duplicate points
+at 3350 with interval 350. Fractional offsets round up and duplicate points
 are removed. All-warmup budgets have no evaluation. Previously completed
-runs retain their original checkpoints and are never rewritten.
+runs keep their original checkpoint records until explicitly replaced.
 With the Random Grid launcher budgets, RCliffWalking starts at 2500 and ends
 at 50000; RBridge starts at 4500 and ends at 150000; RZigZag starts at 5000
 and ends at 200000.
@@ -176,14 +177,14 @@ enables them. No additional model checkpoints are needed. Existing saved
 weights can be passed to the same pure diagnostic functions; there is no
 separate offline-analysis launcher in this change.
 
-At each evaluation checkpoint, freeze a state-wise epsilon-greedy policy.
-Separate RARe uses its online evaluation critic; Shared RARe uses its online
-base critic. Both use evaluation epsilon, matching their expected skip TD
-policy. TempoRL and UTE use their online base critic and
-behavior epsilon; during uniform warmup the reference epsilon is 1. The
-network supplies greedy action identities only. Its predicted Q magnitudes
-never supply the reference values. Ties follow the existing first-argmax rule.
-The frozen policy is defined on every cell for every possible goal, including
+At each evaluation checkpoint, freeze the behavior epsilon-greedy policy for
+the common True Risk comparison. All algorithms use their online base Q to
+choose greedy action identities and the same training-epsilon schedule;
+during uniform warmup epsilon is 1. Separate RARe additionally freezes its
+own evaluation-critic policy at the same epsilon for a separately named
+target-policy diagnostic. The network's predicted Q magnitudes never supply
+exact reference values. Ties follow the existing first-argmax rule.
+Each frozen policy is defined on every cell for every possible goal, including
 cells not visited by greedy evaluation. Continuation uses primitive actions
 under this policy, as in the skip bootstrap definition, rather than further
 skip decisions. The reference epsilon is fixed throughout the calculation.
@@ -251,7 +252,12 @@ curves and raw decision traces are not sent to W&B. `run.json`, resolved
 YAML and W&B config record the full measurement protocol. The local source
 snapshot includes the diagnostics module.
 
-This measures accuracy on each algorithm's own visited decision distribution.
+The common fields measure accuracy under the same behavior-policy definition
+on each algorithm's own visited decision distribution. Separate RARe's
+`target_*` fields use the same formula but its distinct evaluation policy,
+so they diagnose calibration to the actual skip-learning target rather than
+the cross-algorithm behavior reference. Both policies share the same numeric
+epsilon at each checkpoint; their greedy actions can differ.
 TempoRL/UTE are compared against the expected-value reference even though
 their training targets use max/DDQN bootstrap, so this is not their native
 TD loss. Each nonterminal candidate's inferred risk error is its skip-value

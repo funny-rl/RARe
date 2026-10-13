@@ -43,9 +43,6 @@ algorithms:
     skip_replay_capacity: null
     skip_learning_rate: null
     use_data_aug: true
-    max_eval_epsilon: 0.2
-    min_eval_epsilon: 0.01
-    eval_epsilon_cutoff: 1.0
     eval_learning_rate: null  # separate only; inherits common.learning_rate
 
 environments:
@@ -53,14 +50,11 @@ environments:
     common:
       total_steps: 15000
       warmup_steps: 2000
-    algorithms:
-      RARe:
-        max_eval_epsilon: 0.1
   Bridge:
     common:
       total_steps: 23000
       warmup_steps: 3000
   ZigZag:
     common:
-      total_steps: 30000
+      total_steps: 35000
       warmup_steps: 3000
