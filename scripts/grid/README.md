@@ -192,27 +192,30 @@ skip decisions. The reference epsilon is fixed throughout the calculation.
 `diagnostics/grid_risk.py` separates five operations:
 
 1. `grid_policy_probabilities` constructs pi[goal, cell, action].
-2. `solve_grid_policy_values` computes exact finite-horizon
-   Q[goal, remaining_steps, cell, action] using the known transition/reward
-   model. A JAX scan builds horizons 0 through the episode limit. Goals and
+2. `solve_grid_policy_values` computes exact finite-horizon Q^pi for the
+   checkpoint's frozen epsilon policy. `solve_grid_optimal_values` computes
+   Q* with a max over actions at **every** later step. Both use the known
+   transition/reward model. A JAX scan builds horizons 0 through the episode limit. Goals and
    pits are absorbing, Q_0 is zero, and timeout ends continuation after the
    last observed reward. There is no neural function approximation, Monte
    Carlo estimation or iterative convergence tolerance. Float32 rounding
-   still applies; `policy_bellman_residual` checks all horizon equations.
+   still applies; separate Bellman residuals check both horizon equations.
 3. `score_decision_risks` repeats the actual decision's action separately for
    every candidate length 1..J. It computes discounted prefix return G_j,
-   endpoint state s_j, exact expected skip value Y_pi, exact max skip baseline
-   Y_max, and the paper's undiscounted Eq. 3 gap R_true:
+   endpoint state s_j, exact expected skip value Y_pi, optimal-control baseline
+   Y_max, and the full-continuation risk used in this experiment:
 
    ```text
    Y_pi  = G_j + gamma^j * sum_b pi(b|s_j) Q^pi(s_j,b)
-   Y_max = G_j + gamma^j * max_b Q^pi(s_j,b)
-   R_true = max_b Q^pi(s_j,b) - sum_b pi(b|s_j) Q^pi(s_j,b)
+   Y_max = G_j + gamma^j * max_b Q*(s_j,b)
+   R_true = max_b Q*(s_j,b) - sum_b pi(b|s_j) Q^pi(s_j,b)
    R_hat  = (Y_max - predicted_skip_value_j) / gamma^j
    ```
 
-   Both terms use the same Q^pi, not optimal-policy Q*. The same pi defines
-   exact Q and its endpoint expectation. The implied risk is not clipped,
+   The first term assumes optimal control through the entire remaining
+   episode; the second follows the checkpoint policy through continuation.
+   This operational definition extends the current manuscript equation,
+   which has not yet been edited. The implied risk is not clipped,
    and UTE uses its ensemble mean without its skip-selection uncertainty
    penalty. Goal, pit or timeout freezes prefix return for every later
    candidate length: Y_pi=Y_max=G and R_true=0. Prediction errors at these
@@ -245,8 +248,8 @@ eval/skip_value_mae_mean       eval/skip_value_mae_variance
 
 Local JSONL field names omit `eval/`. `risk_diagnostics.jsonl` additionally
 stores each length's two MAEs, total count, valid risk count, ended-prefix
-count and risk-excluded fraction. It also retains frozen epsilon, Bellman
-residual, risk-valid fraction over all candidate pairs and number of lengths
+count and risk-excluded fraction. It also retains frozen epsilon, policy and
+optimal Bellman residuals, risk-valid fraction over all candidate pairs and number of lengths
 with valid risk samples for each seed/checkpoint. Per-length
 curves and raw decision traces are not sent to W&B. `run.json`, resolved
 YAML and W&B config record the full measurement protocol. The local source

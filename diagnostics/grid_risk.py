@@ -35,6 +35,7 @@ class GridRiskEvaluation(NamedTuple):
     bellman_residual: jax.Array
     target_totals: RiskTotals | None = None
     target_bellman_residual: jax.Array | None = None
+    optimal_bellman_residual: jax.Array | None = None
 
 
 def _grid_model(env):
@@ -69,8 +70,8 @@ def solve_grid_policy_values(env, policy_probs, gamma):
     """Return Q[goal, remaining_steps, position, action], including Q_0=0.
 
     Recompute this table for each checkpoint's frozen epsilon policy. Q^pi
-    takes the indexed first action, then follows that same policy; the later
-    max baseline in score_decision_risks changes only the first action.
+    takes the indexed first action, then follows that same policy. Optimal
+    control has a separate Bellman backup below.
     Policy probabilities are stationary because current Grid observations do
     not encode elapsed time. Values retain time to honor the absorbing timeout.
     No learned critic, sampled trajectory, tolerance or iterative convergence
@@ -92,6 +93,21 @@ def solve_grid_policy_values(env, policy_probs, gamma):
     return jnp.concatenate((zero[:, None], jnp.swapaxes(values, 0, 1)), axis=1)
 
 
+def solve_grid_optimal_values(env, gamma):
+    """Compute finite-horizon Q* with optimal control at every future step."""
+    successors, rewards, ended, absorbing = _grid_model(env)
+    zero = jnp.zeros((env.params.goals.shape[0], *successors.shape), jnp.float32)
+
+    def backup(previous, _):
+        optimal = jnp.max(previous, axis=-1)
+        current = rewards + gamma * jnp.where(ended, 0., optimal[:, successors])
+        current = jnp.where(absorbing[:, :, None], 0., current)
+        return current, current
+
+    _, values = jax.lax.scan(backup, zero, None, length=env.spec.max_steps)
+    return jnp.concatenate((zero[:, None], jnp.swapaxes(values, 0, 1)), axis=1)
+
+
 def policy_bellman_residual(env, policy_probs, gamma, q_values):
     """Check all finite-horizon Bellman equations and absorbing boundaries."""
     successors, rewards, ended, absorbing = _grid_model(env)
@@ -101,11 +117,22 @@ def policy_bellman_residual(env, policy_probs, gamma, q_values):
     return jnp.maximum(jnp.max(jnp.abs(q_values[:, 0])), jnp.max(jnp.abs(q_values[:, 1:] - targets)))
 
 
-def score_decision_risks(env, q_values, policy_probs, state, action, predictions, gamma):
+def optimal_bellman_residual(env, gamma, q_values):
+    """Check that Q* uses a maximum at every continuation step."""
+    successors, rewards, ended, absorbing = _grid_model(env)
+    optimal = jnp.max(q_values[:, :-1], axis=-1)
+    targets = rewards[:, None] + gamma * jnp.where(ended[:, None], 0., optimal[:, :, successors])
+    targets = jnp.where(absorbing[:, None, :, None], 0., targets)
+    return jnp.maximum(jnp.max(jnp.abs(q_values[:, 0])), jnp.max(jnp.abs(q_values[:, 1:] - targets)))
+
+
+def score_decision_risks(env, q_values, optimal_q_values, policy_probs, state, action, predictions, gamma):
     """Score every length, including unselected and post-termination labels.
 
-    The exact max baseline minus predicted skip value, divided by gamma**j,
-    is the skip network's implied risk. It is not a separate learned risk head.
+    The exact optimal-control baseline minus predicted skip value, divided by
+    gamma**j, is the skip network's implied risk. It is not a learned risk head.
+    The baseline cancels in implied-minus-true risk, so its absolute error is
+    exactly skip-value error / gamma**j at every nonterminal endpoint.
     Terminal prefixes stop accumulating reward; all later labels share the
     same exact skip value and zero true risk. Their value errors still count;
     the evaluation observer excludes them from risk-error aggregation.
@@ -123,8 +150,10 @@ def score_decision_risks(env, q_values, policy_probs, state, action, predictions
         following, prefix, ended = jax.lax.cond(ended, lambda _: carry, advance, operand=None)
         remaining = jnp.maximum(env.params.max_steps - following.steps, 0)
         endpoint_q = q_values[goal_index, remaining, following.position]
+        endpoint_optimal_q = optimal_q_values[goal_index, remaining, following.position]
         endpoint_q = jnp.where(ended, 0., endpoint_q)
-        maximum = jnp.max(endpoint_q)
+        endpoint_optimal_q = jnp.where(ended, 0., endpoint_optimal_q)
+        maximum = jnp.max(endpoint_optimal_q)
         expected = jnp.sum(policy_probs[goal_index, following.position] * endpoint_q)
         discount = discounts[index]
         values = (prefix + discount * expected, prefix + discount * maximum, maximum - expected, ended)
@@ -152,6 +181,7 @@ def evaluate_grid_risk(env, online_params, skip_params, policy_params, epsilon, 
         raise ValueError("gamma**max_skip underflows; reduce max_skip or disable risk diagnostics")
     probabilities = grid_policy_probabilities(env, policy_params, epsilon)
     q_values = solve_grid_policy_values(env, probabilities, gamma)
+    optimal_q_values = solve_grid_optimal_values(env, gamma)
     if target_policy_params is not None:
         target_probabilities = grid_policy_probabilities(env, target_policy_params, epsilon)
         target_q_values = solve_grid_policy_values(env, target_probabilities, gamma)
@@ -165,11 +195,13 @@ def evaluate_grid_risk(env, online_params, skip_params, policy_params, epsilon, 
 
     def observe_decision(totals, observation, state, action, predictions):
         del observation
-        errors = score_decision_risks(env, q_values, probabilities, state, action, predictions, gamma)
+        errors = score_decision_risks(env, q_values, optimal_q_values, probabilities,
+                                      state, action, predictions, gamma)
         if target_policy_params is None:
             return accumulate(totals, errors)
         target_errors = score_decision_risks(
-            env, target_q_values, target_probabilities, state, action, predictions, gamma,
+            env, target_q_values, optimal_q_values, target_probabilities,
+            state, action, predictions, gamma,
         )
         return (accumulate(totals[0], errors), accumulate(totals[1], target_errors))
 
@@ -186,7 +218,8 @@ def evaluate_grid_risk(env, online_params, skip_params, policy_params, epsilon, 
                        policy_bellman_residual(env, target_probabilities, gamma, target_q_values))
     return GridRiskEvaluation(result.episodes, behavior_totals, epsilon,
                               policy_bellman_residual(env, probabilities, gamma, q_values),
-                              target_totals, target_residual)
+                              target_totals, target_residual,
+                              optimal_bellman_residual(env, gamma, optimal_q_values))
 
 
 def aggregate_risk_errors(result):
@@ -220,6 +253,8 @@ def aggregate_risk_errors(result):
                             "risk_excluded_fraction": float(totals.ended_counts[index] / count) if count else None,
                             "value_mae": value_maes[index], "risk_mae": risk_maes[index]}
                            for index, count in enumerate(counts)]}
+    if result.optimal_bellman_residual is not None:
+        details["optimal_bellman_residual"] = float(result.optimal_bellman_residual)
     return metrics, details
 
 
