@@ -6,6 +6,8 @@ import jax
 import jax.numpy as jnp
 from jax.experimental import checkify
 
+from .observation_codec import decode_observation, encode_observation, storage_spec
+
 
 class SkipSegment(NamedTuple):
     """One fixed-shape repeat: observations (J+1, ...), rewards/end flags (J,).
@@ -53,24 +55,23 @@ class SkipReplayState(NamedTuple):
     size: jax.Array
 
 
-def init_skip_replay(capacity: int, obs_shape: tuple[int, ...], *, observation_dtype=jnp.float32) -> SkipReplayState:
+def init_skip_replay(capacity: int, obs_shape: tuple[int, ...], *, observation_dtype=jnp.float32,
+                     observation_codec="raw") -> SkipReplayState:
     """Allocate skip replay; uint8 observations require exact integral encodings."""
     if type(capacity) is not int or capacity <= 0:
         raise ValueError("capacity must be a positive Python integer")
     if (not isinstance(obs_shape, tuple) or not obs_shape
             or any(type(size) is not int or size <= 0 for size in obs_shape)):
         raise ValueError("obs_shape must be a nonempty tuple of positive Python integers")
-    observation_dtype = jnp.dtype(observation_dtype)
-    if observation_dtype not in (jnp.dtype(jnp.float32), jnp.dtype(jnp.uint8)):
-        raise ValueError("observation storage dtype must be float32 or uint8")
+    storage_shape, observation_dtype = storage_spec(obs_shape, observation_dtype, observation_codec)
     return SkipReplayState(
         data=SkipBatch(
-            observations=jnp.zeros((capacity, *obs_shape), dtype=observation_dtype),
+            observations=jnp.zeros((capacity, *storage_shape), dtype=observation_dtype),
             actions=jnp.zeros(capacity, dtype=jnp.int32),
             skips=jnp.zeros(capacity, dtype=jnp.int32),
             returns=jnp.zeros(capacity, dtype=jnp.float32),
             discounts=jnp.zeros(capacity, dtype=jnp.float32),
-            next_observations=jnp.zeros((capacity, *obs_shape), dtype=observation_dtype),
+            next_observations=jnp.zeros((capacity, *storage_shape), dtype=observation_dtype),
             terminated=jnp.zeros(capacity, dtype=jnp.bool_),
             truncated=jnp.zeros(capacity, dtype=jnp.bool_),
             selected_skips=jnp.zeros(capacity, dtype=jnp.int32),
@@ -95,6 +96,8 @@ def add_skip_segment(
     gamma: jax.Array,
     *,
     augment_subsegments: bool = True,
+    observation_codec="raw",
+    observation_dim=None,
 ) -> SkipReplayState:
     """Insert a repeat and its supported skip labels, preserving terminal credit.
 
@@ -118,7 +121,12 @@ def add_skip_segment(
     if rewards.ndim != 1 or rewards.shape[0] < 1:
         raise ValueError("segment rewards must have shape (J,) with J >= 1")
     max_skip = rewards.shape[0]
-    if observations.shape != (max_skip + 1, *state.data.observations.shape[1:]):
+    expected_shape = (max_skip + 1, *state.data.observations.shape[1:])
+    if observation_codec == "grid_indices":
+        if type(observation_dim) is not int or observation_dim <= 0:
+            raise ValueError("grid_indices requires a positive observation_dim")
+        expected_shape = (max_skip + 1, observation_dim)
+    if observations.shape != expected_shape:
         raise ValueError("segment observations must have shape (J+1, *obs_shape)")
     if terminated.shape != rewards.shape or truncated.shape != rewards.shape:
         raise ValueError("segment end flags must have shape (J,)")
@@ -163,12 +171,12 @@ def add_skip_segment(
     record_terminated = terminated[actual_ends - 1]
     record_truncated = truncated[actual_ends - 1]
     records = SkipBatch(
-        observations=observations[starts],
+        observations=encode_observation(observations[starts], observation_codec),
         actions=jnp.full(ends.shape, action, dtype=jnp.int32),
         skips=(ends - starts).astype(jnp.int32),
         returns=return_table[starts, actual_ends - 1],
         discounts=jnp.where(record_terminated | record_truncated, 0.0, gamma ** actual_steps),
-        next_observations=observations[actual_ends],
+        next_observations=encode_observation(observations[actual_ends], observation_codec),
         terminated=record_terminated,
         truncated=record_truncated,
         selected_skips=jnp.full(ends.shape, selected, dtype=jnp.int32),
@@ -194,7 +202,8 @@ def add_skip_segment(
     )
 
 
-def sample_skip_batch(key: jax.Array, state: SkipReplayState, batch_size: int) -> SkipBatch:
+def sample_skip_batch(key: jax.Array, state: SkipReplayState, batch_size: int, *,
+                      observation_codec="raw", observation_dim=None) -> SkipBatch:
     """Sample nonempty skip replay uniformly with replacement using an explicit key.
 
     batch_size is static under jit. Compiled callers must guard size > 0;
@@ -205,5 +214,7 @@ def sample_skip_batch(key: jax.Array, state: SkipReplayState, batch_size: int) -
     _require(state.size > 0, "cannot sample an empty skip replay")
     indices = jax.random.randint(key, (batch_size,), 0, state.size)
     sampled = jax.tree.map(lambda storage: storage[indices], state.data)
-    return sampled._replace(observations=sampled.observations.astype(jnp.float32),
-                            next_observations=sampled.next_observations.astype(jnp.float32))
+    return sampled._replace(
+        observations=decode_observation(sampled.observations, observation_codec, observation_dim),
+        next_observations=decode_observation(sampled.next_observations, observation_codec, observation_dim),
+    )

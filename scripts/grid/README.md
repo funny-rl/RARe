@@ -24,8 +24,26 @@ CliffWalking to 50,000, Bridge to 150,000 and ZigZag to 200,000 steps per seed. 
 launcher defaults can be changed with an explicit `--total-steps N` argument.
 For Random Bridge and ZigZag, launcher defaults keep primitive replay at
 100,000 and skip replay at 300,000 records per seed even as training continues
-past 100,000 steps. DDQN has no skip replay. All Grid observations are stored
-as exact uint8 values 0–3 and converted back to float32 when sampled.
+past 100,000 steps. DDQN has no skip replay. Grid replay stores each
+observation as two exact cell indices (agent and goal), then reconstructs
+the original float32 0–3 vector when sampled. The capacity and sampling
+distribution are unchanged.
+
+To reproduce a short timing comparison without creating an experiment run,
+use `profile_training.py`. It restricts the probe to at most 2,048 steps,
+does not contact W&B or save models, and reports compile time separately
+from the median steady-state GPU chunk time. For example:
+
+```bash
+python /data/RARe/scripts/grid/profile_training.py --env Bridge --random \
+  --algorithm RARe --rare-q-mode separate --gpu 0 --seeds 20 \
+  --total-steps 150000 --replay-capacity 100000 --skip-replay-capacity 300000 \
+  --storage compact
+```
+
+Use `--storage raw` for the original replay representation. Both modes
+simulate the same initial training window with warmup set to zero for timing;
+they do not replace the full experiment or its warmup schedule.
 The current 20-seed campaign passed `--model-save-interval 0` to every run.
 
 All remaining options go to `python -m experiments.train` unchanged.

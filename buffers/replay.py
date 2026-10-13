@@ -6,6 +6,8 @@ import jax
 import jax.numpy as jnp
 from jax.experimental import checkify
 
+from .observation_codec import decode_observation, encode_observation, storage_spec
+
 
 class ReplayBatch(NamedTuple):
     """Arrays with a leading storage/sample axis; scalar fields have shape (B,)."""
@@ -27,7 +29,8 @@ class ReplayState(NamedTuple):
     size: jax.Array
 
 
-def init_replay(capacity: int, obs_shape: tuple[int, ...], *, observation_dtype=jnp.float32) -> ReplayState:
+def init_replay(capacity: int, obs_shape: tuple[int, ...], *, observation_dtype=jnp.float32,
+                observation_codec="raw") -> ReplayState:
     """Allocate float32 rewards and configurable observation storage.
 
     Actions are scalar int32 indices. Previous action -1 means absent, as at
@@ -39,15 +42,13 @@ def init_replay(capacity: int, obs_shape: tuple[int, ...], *, observation_dtype=
     if (not isinstance(obs_shape, tuple) or not obs_shape
             or any(type(size) is not int or size <= 0 for size in obs_shape)):
         raise ValueError("obs_shape must be a nonempty tuple of positive Python integers")
-    observation_dtype = jnp.dtype(observation_dtype)
-    if observation_dtype not in (jnp.dtype(jnp.float32), jnp.dtype(jnp.uint8)):
-        raise ValueError("observation storage dtype must be float32 or uint8")
+    storage_shape, observation_dtype = storage_spec(obs_shape, observation_dtype, observation_codec)
     return ReplayState(
         data=ReplayBatch(
-            observations=jnp.zeros((capacity, *obs_shape), dtype=observation_dtype),
+            observations=jnp.zeros((capacity, *storage_shape), dtype=observation_dtype),
             actions=jnp.zeros((capacity,), dtype=jnp.int32),
             rewards=jnp.zeros((capacity,), dtype=jnp.float32),
-            next_observations=jnp.zeros((capacity, *obs_shape), dtype=observation_dtype),
+            next_observations=jnp.zeros((capacity, *storage_shape), dtype=observation_dtype),
             terminated=jnp.zeros((capacity,), dtype=jnp.bool_),
             truncated=jnp.zeros((capacity,), dtype=jnp.bool_),
             previous_actions=jnp.full((capacity,), -1, dtype=jnp.int32),
@@ -67,6 +68,8 @@ def add_transition(
     truncated: jax.Array,
     *,
     previous_action: jax.Array | None = None,
+    observation_codec="raw",
+    observation_dim=None,
 ) -> ReplayState:
     """Store one primitive transition, overwriting the oldest when full.
 
@@ -75,11 +78,18 @@ def add_transition(
     Each action/reward/flag is scalar; observations must match obs_shape.
     The input state is unchanged. Batch independent states with vmap.
     """
+    observation = jnp.asarray(observation, dtype=jnp.float32)
+    next_observation = jnp.asarray(next_observation, dtype=jnp.float32)
+    if observation_codec == "grid_indices" and (
+        type(observation_dim) is not int or observation.shape != (observation_dim,)
+        or next_observation.shape != observation.shape
+    ):
+        raise ValueError("grid_indices requires matching observations of observation_dim")
     transition = ReplayBatch(
-        observations=jnp.asarray(observation, dtype=jnp.float32),
+        observations=encode_observation(observation, observation_codec),
         actions=jnp.asarray(action),
         rewards=jnp.asarray(reward, dtype=jnp.float32),
-        next_observations=jnp.asarray(next_observation, dtype=jnp.float32),
+        next_observations=encode_observation(next_observation, observation_codec),
         terminated=jnp.asarray(terminated, dtype=jnp.bool_),
         truncated=jnp.asarray(truncated, dtype=jnp.bool_),
         previous_actions=jnp.asarray(-1 if previous_action is None else previous_action),
@@ -106,7 +116,8 @@ def add_transition(
     )
 
 
-def sample_batch(key: jax.Array, state: ReplayState, batch_size: int) -> ReplayBatch:
+def sample_batch(key: jax.Array, state: ReplayState, batch_size: int, *,
+                 observation_codec="raw", observation_dim=None) -> ReplayBatch:
     """Sample stored transitions uniformly with replacement, without mutation.
 
     The caller owns key advancement. batch_size must be static under jit.
@@ -121,5 +132,7 @@ def sample_batch(key: jax.Array, state: ReplayState, batch_size: int) -> ReplayB
     checkify.debug_check(state.size > 0, "cannot sample an empty replay")
     indices = jax.random.randint(key, (batch_size,), 0, state.size)
     sampled = jax.tree.map(lambda storage: storage[indices], state.data)
-    return sampled._replace(observations=sampled.observations.astype(jnp.float32),
-                            next_observations=sampled.next_observations.astype(jnp.float32))
+    return sampled._replace(
+        observations=decode_observation(sampled.observations, observation_codec, observation_dim),
+        next_observations=decode_observation(sampled.next_observations, observation_codec, observation_dim),
+    )

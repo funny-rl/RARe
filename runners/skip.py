@@ -135,7 +135,8 @@ class SkipRunner(DDQNRunner):
         return SkipRunState(
             *base._replace(rngs=base.rngs._replace(model_init=model_stream)), skip,
             init_skip_replay(self.config.skip_replay_capacity, self.env.observation_shape,
-                             observation_dtype=getattr(self.env, "observation_storage_dtype", jnp.float32)), evaluation,
+                             observation_dtype=getattr(self.env, "observation_storage_dtype", jnp.float32),
+                             observation_codec=getattr(self.env, "observation_codec", "raw")), evaluation,
             self._empty_segment(base.observation), jnp.asarray(0, jnp.int32), jnp.asarray(True),
             jnp.asarray(0, jnp.int32),
         )
@@ -184,14 +185,20 @@ class SkipRunner(DDQNRunner):
         target_settings = dict(tau=config.tau, use_hard_update=config.use_hard_update, update_interval=config.update_interval)
         replay_stream, sample_key = jax.random.split(state.rngs.replay)
         learner, loss = ddqn_train_step(
-            state.learner, sample_batch(sample_key, replay, config.batch_size), config.gamma,
+            state.learner, sample_batch(
+                sample_key, replay, config.batch_size,
+                observation_codec=getattr(self.env, "observation_codec", "raw"),
+                observation_dim=self.env.observation_shape[0]), config.gamma,
             self._learning_rate(state.training_steps), steps, **target_settings,
         )
         evaluation, eval_loss = state.evaluation, jnp.asarray(0., jnp.float32)
         if config.algorithm == "RARe" and config.rare_q_mode == "separate":
             replay_stream, sample_key = jax.random.split(replay_stream)
             evaluation, eval_loss = evaluation_train_step(
-                evaluation, sample_batch(sample_key, replay, config.batch_size), config.gamma,
+                evaluation, sample_batch(
+                    sample_key, replay, config.batch_size,
+                    observation_codec=getattr(self.env, "observation_codec", "raw"),
+                    observation_dim=self.env.observation_shape[0]), config.gamma,
                 self._evaluation_epsilon(steps), self._rate(state.training_steps, config.eval_learning_rate),
                 steps, **target_settings,
             )
@@ -199,7 +206,10 @@ class SkipRunner(DDQNRunner):
 
         def learn_skip(current_rngs):
             replay_stream, sample_key = jax.random.split(current_rngs.replay)
-            batch = sample_skip_batch(sample_key, state.skip_replay, config.batch_size)
+            batch = sample_skip_batch(
+                sample_key, state.skip_replay, config.batch_size,
+                observation_codec=getattr(self.env, "observation_codec", "raw"),
+                observation_dim=self.env.observation_shape[0])
             current_rngs = current_rngs._replace(replay=replay_stream)
             bootstrap = self._skip_bootstrap(learner, evaluation, batch.next_observations, steps)
             rate = self._rate(state.training_steps, config.skip_learning_rate)
@@ -237,7 +247,9 @@ class SkipRunner(DDQNRunner):
         next_obs, env_state, reward, terminated, truncated, _ = self.env.step(step_key, state.env_state, action)
         state = state._replace(rngs=state.rngs._replace(environment=stream))
         replay = add_transition(state.replay, state.observation, action, reward, next_obs, terminated, truncated,
-                                previous_action=state.previous_action)
+                                previous_action=state.previous_action,
+                                observation_codec=getattr(self.env, "observation_codec", "raw"),
+                                observation_dim=self.env.observation_shape[0])
         steps = state.training_steps + 1
         learned = ~state.repeat_warmup
         learner, evaluation, skip, rngs, loss, eval_loss, skip_loss, skip_learned = jax.lax.cond(
@@ -259,7 +271,9 @@ class SkipRunner(DDQNRunner):
         # never flush a partial repeat; only its actual end or budget does.
         skip_replay = jax.lax.cond(
             completed, lambda storage: add_skip_segment(storage, segment, self.config.gamma,
-                                                        augment_subsegments=self.config.use_data_aug),
+                                                        augment_subsegments=self.config.use_data_aug,
+                                                        observation_codec=getattr(self.env, "observation_codec", "raw"),
+                                                        observation_dim=self.env.observation_shape[0]),
             lambda storage: storage, state.skip_replay,
         )
         episode_return = state.episode_return + reward

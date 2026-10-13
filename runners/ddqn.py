@@ -114,7 +114,8 @@ class DDQNRunner:
         learner = init_ddqn_state(init_key, self.env.observation_shape[0], self.env.num_actions, self.config.hidden_dim)
         return DDQNRunState(
             learner, init_replay(self.config.replay_capacity, self.env.observation_shape,
-                                 observation_dtype=getattr(self.env, "observation_storage_dtype", jnp.float32)), rngs,
+                                 observation_dtype=getattr(self.env, "observation_storage_dtype", jnp.float32),
+                                 observation_codec=getattr(self.env, "observation_codec", "raw")), rngs,
             env_state, observation, jnp.asarray(0, jnp.int32), jnp.asarray(0, jnp.int32),
             jnp.asarray(0., jnp.float32), jnp.asarray(-1, jnp.int32),
         )
@@ -153,13 +154,17 @@ class DDQNRunner:
         replay = add_transition(
             state.replay, state.observation, action, reward, next_obs, terminated, truncated,
             previous_action=state.previous_action,
+            observation_codec=getattr(self.env, "observation_codec", "raw"),
+            observation_dim=self.env.observation_shape[0],
         )
         steps = state.training_steps + 1
         rngs = state.rngs._replace(action=action_stream, environment=environment_stream)
 
         def learn(_):
             replay_stream, sample_key = jax.random.split(rngs.replay)
-            batch = sample_batch(sample_key, replay, config.batch_size)
+            batch = sample_batch(sample_key, replay, config.batch_size,
+                                 observation_codec=getattr(self.env, "observation_codec", "raw"),
+                                 observation_dim=self.env.observation_shape[0])
             learner, loss = ddqn_train_step(
                 state.learner, batch, config.gamma, self._learning_rate(state.training_steps), steps,
                 tau=config.tau, use_hard_update=config.use_hard_update, update_interval=config.update_interval,

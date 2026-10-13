@@ -139,6 +139,7 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
         "environment": {"name": args.env, "random": args.random, "spec": asdict(env.spec)},
         "execution": {"seed_batching": "vmap", "device_count": 1,
                       "chunk_steps": compiled_steps, "requested_chunk_steps": args.chunk_steps,
+                      "replay_observation_codec": getattr(env, "observation_codec", "raw"),
                       "logging_snapshot": "one synchronized transfer per training chunk",
                       "collection_loop": "dynamic while loop; inactive metric slots are not executed"},
         "runtime": runtime_metadata(jax),

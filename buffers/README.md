@@ -2,6 +2,11 @@
 
 `replay.py` stores discrete-action primitive transitions as JAX pytrees.
 `skip.py` separately stores action-repeat segments and their derived labels.
+The default API stores raw observations. Grid runners select the opt-in
+`grid_indices` codec: for the existing Grid encoding, agent and goal cell
+indices reconstruct the exact 0–3 vector, including value 3 when they
+overlap. Only storage is compressed; sampled training batches are float32
+and use the same replay indices. Other environments retain raw storage.
 
 ## Primitive replay
 
@@ -53,8 +58,9 @@ It returns a `ReplayBatch` with observations shaped `(B, *obs_shape)` and
 all action/reward/flag fields shaped `(B,)`, rather than `(B, 1)`. Keep this
 convention in loss code to avoid unintended `(B, B)` broadcasting.
 
-Observations/rewards are float32, actions/previous actions are int32, and
-end flags are bool. `terminated` and `truncated` remain separate; the learner
+Sampled observations and rewards are float32; compact Grid storage keeps two
+cell indices per observation. Actions/previous actions are int32 and end flags
+are bool. `terminated` and `truncated` remain separate; the learner
 will decide the time-limit bootstrap rule. Store a terminal successor before
 resetting so that a subsequent episode's initial observation cannot replace it.
 
