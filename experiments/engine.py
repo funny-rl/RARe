@@ -44,7 +44,7 @@ def rng_records(jax, state, seeds, phase, *, snapshot=None):
     } for index, seed in enumerate(seeds)]
 
 
-def policy_models(state, algorithm, *, with_risk=False):
+def policy_models(state, algorithm, *, with_risk=False, shared_target_epsilon_source="behavior"):
     models = {"online": state.learner.online_params}
     if algorithm != "DDQN":
         models["skip"] = state.skip_learner.params
@@ -52,8 +52,10 @@ def policy_models(state, algorithm, *, with_risk=False):
         # True Risk always measures the policy that actually chooses actions.
         models["risk_policy"] = state.learner.online_params
         if algorithm == "RARe" and state.evaluation is not None:
-            # Separate RARe also receives its own policy for target calibration.
             models["target_risk_policy"] = state.evaluation.online_params
+        elif algorithm == "RARe" and shared_target_epsilon_source == "evaluation":
+            # Same greedy critic, but the target epsilon still defines a distinct policy.
+            models["target_risk_policy"] = state.learner.online_params
     return models
 
 
@@ -98,7 +100,13 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     algorithm = args.algorithm
     separate_rare = algorithm == "RARe" and config.rare_q_mode == "separate"
-    algorithm_name = ("RARe-se" if separate_rare else "RARe-sh") if algorithm == "RARe" else algorithm
+    shared_eval = (algorithm == "RARe" and config.rare_q_mode == "shared"
+                   and config.shared_target_epsilon_source == "evaluation")
+    distinct_target_policy = separate_rare or shared_eval
+    if algorithm == "RARe":
+        algorithm_name = "RARe-se" if separate_rare else "RARe-sh-eval" if shared_eval else "RARe-sh"
+    else:
+        algorithm_name = algorithm
     environment_name = ("R" if args.random else "") + args.env
     launch_id = uuid.uuid4().hex[:8]
     run_name = args.wandb_name or f"{algorithm_name}-{environment_name}-{stamp}-{launch_id}"
@@ -153,8 +161,10 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
                 "scope": "GridEnv skip algorithms only", "reference": "exact finite-horizon V_star minus V_pi",
                 "policy_source": "base_online_for_every_algorithm",
                 "epsilon_source": "behavior_epsilon_including_warmup_for_every_algorithm",
-                "separate_rare_target_policy": "evaluation_online_with_the_same_epsilon",
-                "separate_rare_target_metrics": "target_*; distinct pi_e, never pooled with behavior-risk errors",
+                "shared_rare_target_policy": ("base_online_with_independent_evaluation_epsilon" if shared_eval
+                                               else "base_online_with_behavior_epsilon"),
+                "separate_rare_target_policy": "evaluation_online_with_independent_evaluation_epsilon",
+                "distinct_target_metrics": "target_* for RARe-se or RARe-sh-eval; never pooled with behavior-risk errors",
                 "policy_frozen_per_checkpoint": True, "state_distribution": "own greedy evaluation decision points",
                 "lengths": "all 1..max_skip at every decision, including unselected and terminal lengths",
                 "true_risk": "max_b Q_star(s_j,b) - sum_b pi(b|s_j) Q^pi(s_j,b)",
@@ -189,6 +199,7 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
             metadata["model_saving"]["contents"].extend(["evaluation_online_params", "evaluation_target_params"])
         metadata["protocol"].update(
             rare_q_mode=config.rare_q_mode,
+            shared_target_epsilon_source=config.shared_target_epsilon_source,
             evaluation_policy="own_online_epsilon_greedy" if separate_rare else "base_online_epsilon_greedy",
             evaluation_ensemble_size=1,
             skip_bootstrap_critic="separate_expected_sarsa" if separate_rare else "base_ddqn",
@@ -236,13 +247,17 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
             compile_start = time.perf_counter()
             if risk_enabled:
                 from diagnostics.grid_risk import evaluate_grid_risk
-                evaluate = jax.jit(jax.vmap(lambda models, key, eps: evaluate_grid_risk(
+                evaluate = jax.jit(jax.vmap(lambda models, key, eps, target_eps: evaluate_grid_risk(
                     env, models["online"], models["skip"], models["risk_policy"], eps, key,
                     gamma=config.gamma, algorithm=algorithm, episodes=evaluation_episode_count,
                     uncertainty_factor=getattr(config, "uncertainty_factor", -1.5),
                     initial_states=evaluation_initial_states,
                     target_policy_params=models.get("target_risk_policy"),
-                ))).lower(policy_models(state, algorithm, with_risk=True), state.rngs.evaluation,
+                    target_epsilon=target_eps if distinct_target_policy else None,
+                ))).lower(policy_models(state, algorithm, with_risk=True,
+                                       shared_target_epsilon_source=config.shared_target_epsilon_source),
+                          state.rngs.evaluation,
+                          state.training_steps.astype(jnp.float32),
                           state.training_steps.astype(jnp.float32)).compile()
             else:
                 evaluate = jax.jit(jax.vmap(lambda models, key: evaluate_policy(
@@ -316,7 +331,8 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
                 steps, updates, episodes, partial_return, replay_size = (values[index] for values in counters)
                 records.append({
                     "seed": seed, "env_step_start": start_step + 1, "env_step": int(steps),
-                    "interactions": int(active.sum()), "updates": int(learned.sum()), "updates_total": int(updates),
+                    "interactions": int(active.sum()), "base_q_updates": int(learned.sum()),
+                    "base_q_updates_total": int(updates),
                     "loss_mean": float(metrics.loss[index][learned].mean()) if learned.any() else None,
                     "reward_sum": float(metrics.reward[index][active].sum()),
                     "episodes_finished": int(ended.sum()), "episodes_total": int(episodes),
@@ -334,7 +350,8 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
                     executed = metrics.executed_skip[index][metrics.segment_completed[index] & active]
                     records[-1].update(
                         skip_loss_mean=float(metrics.skip_loss[index][skip_learned].mean()) if skip_learned.any() else None,
-                        skip_updates=int(skip_learned.sum()), skip_updates_total=int(skip_updates[index]),
+                        skip_q_updates=int(skip_learned.sum()),
+                        skip_q_updates_total=int(skip_updates[index]),
                         skip_replay_size=int(skip_sizes[index]), decisions=int(metrics.decision[index].sum()),
                         decisions_total=int(decisions[index]), selected_skip_mean=float(selected.mean()) if selected.size else None,
                         executed_skip_mean=float(executed.mean()) if executed.size else None,
@@ -380,8 +397,11 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
                 keys = jax.vmap(lambda key: jax.random.fold_in(key, end_step))(state.rngs.evaluation)
                 if risk_enabled:
                     risk_epsilon = device_snapshot["risk_epsilon"]
+                    target_risk_epsilon = device_snapshot.get("evaluation_epsilon", risk_epsilon)
                     risk_results, key_data = jax.device_get((
-                        evaluate(policy_models(state, algorithm, with_risk=True), keys, risk_epsilon),
+                        evaluate(policy_models(state, algorithm, with_risk=True,
+                                               shared_target_epsilon_source=config.shared_target_epsilon_source), keys,
+                                 risk_epsilon, target_risk_epsilon),
                         jax.random.key_data(keys)))
                     results = risk_results.episodes
                 else:
@@ -394,6 +414,8 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
                     row["policy_epsilon"] = 0.0
                     if risk_enabled:
                         row["risk_epsilon"] = float(snapshot["risk_epsilon"][index])
+                        if distinct_target_policy:
+                            row["target_risk_epsilon"] = float(snapshot["evaluation_epsilon"][index])
                 if risk_enabled:
                     from diagnostics.grid_risk import aggregate_risk_errors, aggregate_target_risk_errors
                     detail_rows = []
@@ -401,10 +423,11 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
                         result = jax.tree.map(lambda value: value[index], risk_results)
                         risk_metrics, details = aggregate_risk_errors(result)
                         details["policy_source"] = "base_online"
-                        if separate_rare:
+                        if distinct_target_policy:
                             target_metrics, target_details = aggregate_target_risk_errors(result)
                             risk_metrics.update(target_metrics)
-                            details["target_policy"] = dict(target_details, policy_source="evaluation_online")
+                            details["target_policy"] = dict(
+                                target_details, policy_source="evaluation_online" if separate_rare else "base_online")
                         evaluation_rows[index].update(risk_metrics)
                         detail_rows.append({"seed": seed, "env_step": end_step, **details})
                     logger.append("risk_diagnostics", detail_rows)

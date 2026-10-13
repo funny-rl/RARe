@@ -1,4 +1,4 @@
-"""Exact finite-horizon Grid values and Eq. 3 skip-risk diagnostics."""
+"""Exact finite-horizon Grid values and V*-minus-V-policy risk diagnostics."""
 
 from typing import NamedTuple
 
@@ -36,6 +36,7 @@ class GridRiskEvaluation(NamedTuple):
     target_totals: RiskTotals | None = None
     target_bellman_residual: jax.Array | None = None
     optimal_bellman_residual: jax.Array | None = None
+    target_epsilon: jax.Array | None = None
 
 
 def _grid_model(env):
@@ -170,8 +171,8 @@ def score_decision_risks(env, q_values, optimal_q_values, policy_probs, state, a
 
 def evaluate_grid_risk(env, online_params, skip_params, policy_params, epsilon, key, *,
                        gamma, algorithm, episodes, uncertainty_factor=-1.5, initial_states=None,
-                       target_policy_params=None):
-    """Score behavior risk, and optionally RARe-se's distinct target-policy risk."""
+                       target_policy_params=None, target_epsilon=None):
+    """Score behavior risk and, when distinct, RARe's skip-target policy risk."""
     if algorithm not in ("TempoRL", "UTE", "RARe"):
         raise ValueError("grid risk is only defined here for skip algorithms")
     if not 0 < gamma <= 1:
@@ -183,7 +184,8 @@ def evaluate_grid_risk(env, online_params, skip_params, policy_params, epsilon, 
     q_values = solve_grid_policy_values(env, probabilities, gamma)
     optimal_q_values = solve_grid_optimal_values(env, gamma)
     if target_policy_params is not None:
-        target_probabilities = grid_policy_probabilities(env, target_policy_params, epsilon)
+        target_epsilon = epsilon if target_epsilon is None else target_epsilon
+        target_probabilities = grid_policy_probabilities(env, target_policy_params, target_epsilon)
         target_q_values = solve_grid_policy_values(env, target_probabilities, gamma)
     zero = jnp.zeros(max_skip, dtype=q_values.dtype)
     empty = RiskTotals(zero, zero, jnp.zeros(max_skip, jnp.int32), jnp.zeros(max_skip, jnp.int32))
@@ -219,7 +221,8 @@ def evaluate_grid_risk(env, online_params, skip_params, policy_params, epsilon, 
     return GridRiskEvaluation(result.episodes, behavior_totals, epsilon,
                               policy_bellman_residual(env, probabilities, gamma, q_values),
                               target_totals, target_residual,
-                              optimal_bellman_residual(env, gamma, optimal_q_values))
+                              optimal_bellman_residual(env, gamma, optimal_q_values),
+                              target_epsilon if target_policy_params is not None else None)
 
 
 def aggregate_risk_errors(result):
@@ -259,10 +262,11 @@ def aggregate_risk_errors(result):
 
 
 def aggregate_target_risk_errors(result):
-    """Expose RARe-se calibration to its own pi_e without mixing reference policies."""
+    """Expose RARe target calibration without mixing reference policies."""
     if result.target_totals is None:
         raise ValueError("target-policy risk was not measured")
     metrics, details = aggregate_risk_errors(result._replace(
         totals=result.target_totals, bellman_residual=result.target_bellman_residual,
+        epsilon=result.target_epsilon if result.target_epsilon is not None else result.epsilon,
     ))
     return {f"target_{name}": value for name, value in metrics.items()}, details

@@ -3,6 +3,9 @@
 import importlib.metadata
 
 
+LOCAL_ONLY_TRAIN_FIELDS = {"base_q_updates_total", "skip_q_updates_total"}
+
+
 class WandbTracker:
     """Keep batched training in separate W&B runs grouped by algorithm.
 
@@ -57,7 +60,8 @@ class WandbTracker:
             events.append((record["seed"], {
                 "env_step": record["env_step"], **{
                     "train/" + key: value for key, value in record.items()
-                    if key not in ("seed", "env_step", "env_step_start") and value is not None
+                    if key not in ("seed", "env_step", "env_step_start")
+                    and key not in LOCAL_ONLY_TRAIN_FIELDS and value is not None
                 },
             }))
         for record in episodes:

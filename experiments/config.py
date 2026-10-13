@@ -20,7 +20,8 @@ SKIP_FIELDS = {"max_skip", "skip_replay_capacity", "skip_learning_rate", "use_da
 ALGORITHM_FIELDS = {
     "DDQN": set(), "TempoRL": SKIP_FIELDS,
     "UTE": SKIP_FIELDS | {"ensemble_size", "uncertainty_factor", "bootstrap_probability"},
-    "RARe": SKIP_FIELDS | {"eval_learning_rate", "rare_q_mode"},
+    "RARe": SKIP_FIELDS | {"max_eval_epsilon", "min_eval_epsilon", "eval_epsilon_cutoff",
+                            "eval_learning_rate", "rare_q_mode", "shared_target_epsilon_source"},
 }
 ENVIRONMENTS = {"CliffWalking", "Bridge", "ZigZag"}
 EVALUATION_FIELDS = {"interval_fraction", "interval_steps", "episodes", "random_episodes", "risk_diagnostics"}

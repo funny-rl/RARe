@@ -8,8 +8,7 @@ seed; vectorized seeds never share a training trajectory or replay buffer.
 TRAIN = {
     "env_step": "Hidden x-axis: primitive environment interactions completed by this seed, including warmup.",
     "interactions": "Primitive interactions collected in this logging chunk; smaller at a checkpoint boundary.",
-    "updates": "Base DDQN optimizer updates in this chunk, excluding warmup.",
-    "updates_total": "Cumulative base DDQN optimizer updates for this seed.",
+    "base_q_updates": "Base DDQN Q-network optimizer updates in this logging chunk; warmup has none.",
     "loss_mean": "Mean base DDQN Huber loss over updates in this chunk; absent when no update ran.",
     "reward_sum": "Sum of immediate rewards collected in this chunk; may span parts of several episodes.",
     "episodes_finished": "Number of training episodes ending in this chunk.",
@@ -23,8 +22,7 @@ TRAIN = {
     "next_learning_rate": "Base DDQN optimizer learning rate after this chunk, including any configured decay.",
     "chunk_seconds": "Wall-clock seconds for this seed-batched training chunk; the same timing appears in every seed row.",
     "skip_loss_mean": "Mean skip-network Huber loss across skip updates in this chunk; absent if none ran.",
-    "skip_updates": "Skip-network optimizer updates in this chunk.",
-    "skip_updates_total": "Cumulative skip-network optimizer updates for this seed.",
+    "skip_q_updates": "Skip Q-network optimizer updates in this logging chunk.",
     "skip_replay_size": "Skip transitions currently retained in this seed's bounded skip replay buffer.",
     "decisions": "New action-and-skip decisions in this chunk; repeated primitive steps are not extra decisions.",
     "decisions_total": "Cumulative new action-and-skip decisions for this seed.",
@@ -32,7 +30,7 @@ TRAIN = {
     "executed_skip_mean": "Mean primitive steps actually executed per completed repeat segment in this chunk.",
     "next_skip_epsilon": "Epsilon used to explore skip lengths at the next decision; equal to train/epsilon.",
     "next_skip_learning_rate": "Skip-network optimizer learning rate after this chunk.",
-    "expected_policy_epsilon": "RARe expected-target policy epsilon, tied to train/epsilon; Separate still selects greedy actions with its own critic.",
+    "expected_policy_epsilon": "RARe skip-target policy epsilon: RARe-se uses its independent 0.1/0.2-to-0.01 schedule; RARe-sh uses behavior epsilon unless shared_target_epsilon_source=evaluation.",
     "next_evaluation_epsilon": "Legacy alias of train/expected_policy_epsilon.",
     "evaluation_loss_mean": "RARe-se auxiliary Expected SARSA critic loss over this chunk, not an evaluation-episode score.",
     "next_evaluation_learning_rate": "RARe-se auxiliary critic optimizer learning rate after this chunk.",
@@ -58,14 +56,15 @@ EVAL = {
     "risk_mae_variance": "Population variance across those per-length risk MAEs; measures length sensitivity, not seed uncertainty.",
     "skip_value_mae_mean": "Mean across skip lengths of each length's mean absolute skip-value error under the behavior policy.",
     "skip_value_mae_variance": "Population variance across those per-length skip-value MAEs.",
-    "target_risk_mae_mean": "RARe-se only: absolute error versus V_star minus V_pi_e under its separate critic's policy.",
-    "target_risk_mae_variance": "RARe-se only: population variance across per-length risk MAEs under pi_e.",
-    "target_skip_value_mae_mean": "RARe-se only: mean per-length skip-value MAE against its own expected-policy target.",
-    "target_skip_value_mae_variance": "RARe-se only: population variance across per-length skip-value MAEs under pi_e.",
+    "target_risk_epsilon": "RARe-se or RARe-sh-eval only: independent epsilon defining the skip-target policy pi_e.",
+    "target_risk_mae_mean": "RARe-se or RARe-sh-eval only: absolute error versus V_star minus V_pi_e under its skip-target policy.",
+    "target_risk_mae_variance": "RARe-se or RARe-sh-eval only: population variance across per-length risk MAEs under pi_e.",
+    "target_skip_value_mae_mean": "RARe-se or RARe-sh-eval only: mean per-length skip-value MAE against pi_e.",
+    "target_skip_value_mae_variance": "RARe-se or RARe-sh-eval only: population variance across per-length skip-value MAEs under pi_e.",
 }
 
 LOCAL_RISK_DETAILS = {
-    "epsilon": "Frozen policy epsilon at this checkpoint; the behavior and RARe-se target policies use the same numeric epsilon.",
+    "epsilon": "Frozen behavior-policy epsilon at this checkpoint; target_policy.epsilon records a distinct pi_e epsilon when present.",
     "bellman_residual": "Maximum absolute finite-horizon Bellman equation residual for the exact behavior-policy Grid solver.",
     "optimal_bellman_residual": "Maximum absolute finite-horizon Bellman residual for Q_star, whose continuation maximizes at every step.",
     "risk_valid_lengths": "Number of skip lengths with at least one nonterminal visited decision.",
@@ -76,7 +75,13 @@ LOCAL_RISK_DETAILS = {
     "lengths[].risk_excluded_fraction": "Ended count divided by all visits for this length; null when count is zero.",
     "lengths[].value_mae": "Mean absolute skip-value error at this length; includes terminal endpoints.",
     "lengths[].risk_mae": "Mean absolute implied-risk error at this length; excludes terminal endpoints.",
-    "target_policy": "RARe-se only: identical detail schema recomputed for its separate evaluation policy pi_e.",
+    "target_policy": "RARe-se or RARe-sh-eval: identical detail schema recomputed for skip-target policy pi_e.",
 }
 
-METRIC_DEFINITIONS = {"train": TRAIN, "eval": EVAL, "local_risk_details": LOCAL_RISK_DETAILS}
+LOCAL_TRAIN = {
+    "base_q_updates_total": "Cumulative base Q-network optimizer updates, retained in local metrics.jsonl only.",
+    "skip_q_updates_total": "Cumulative skip Q-network optimizer updates, retained in local metrics.jsonl only.",
+}
+
+METRIC_DEFINITIONS = {"train": TRAIN, "eval": EVAL,
+                      "local_train": LOCAL_TRAIN, "local_risk_details": LOCAL_RISK_DETAILS}

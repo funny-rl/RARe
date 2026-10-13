@@ -41,16 +41,22 @@ policy. Shared uses the base DDQN Q for both greedy actions and target values.
 The base critic keeps its DDQN objective in both modes. Shared has no auxiliary
 network, optimizer, auxiliary replay sample or auxiliary-loss log; its base Q
 learning rate is `learning_rate`, and `eval_learning_rate` applies only to
-Separate. Both use the same epsilon schedule as the training behavior policy:
-1 during warmup, then 1 to 0 over the configured decay steps. Equal epsilon
-does not make Separate's distinct greedy policy identical to behavior.
+Separate. The behavior policy uses epsilon 1 during warmup, then decays from
+1 to 0. Separate's skip-target policy uses its own epsilon schedule:
+0.1 to 0.01 on CliffWalking/RCliffWalking, and 0.2 to 0.01 elsewhere.
+Shared uses the behavior epsilon by default. The optional
+`--shared-target-epsilon-source evaluation` uses that independent schedule
+with the shared base Q. It creates a distinct skip-target policy even though
+the greedy action critic is shared.
 
 ```bash
 bash /data/RARe/scripts/grid/cliffwalking/rare.sh --gpu 0 --seeds 0:20 --rare-q-mode shared
 bash /data/RARe/scripts/grid/cliffwalking/rare.sh --gpu 1 --seeds 0:20 --rare-q-mode separate
+bash /data/RARe/scripts/grid/cliffwalking/rare.sh --gpu 2 --seeds 0:20 --rare-q-mode shared --shared-target-epsilon-source evaluation
 ```
 
-RARe run names and W&B groups use `RARe-sh` for Shared and `RARe-se` for
+RARe run names and W&B groups use `RARe-sh` for default Shared,
+`RARe-sh-eval` for Shared with independent target epsilon, and `RARe-se` for
 Separate; default output directories use the corresponding lowercase label.
 W&B projects stay unchanged. The mode is also recorded
 in local run metadata, resolved YAML and W&B config. Both modes save base and
@@ -70,7 +76,7 @@ W&B projects are fixed to `RARe-CliffWalking`, `RARe-Bridge`, `RARe-ZigZag`,
 for an environment share that project. A launcher rejects `--wandb-project`
 overrides; direct unified CLI calls also reject a mismatching project name.
 Each seed has its own W&B run, grouped by algorithm (DDQN, TempoRL, UTE,
-RARe-sh or RARe-se). Thus `--seeds 0:20` creates 20 runs for seeds 0 through 19. Default
+RARe-sh, RARe-sh-eval or RARe-se). Thus `--seeds 0:20` creates 20 runs for seeds 0 through 19. Default
 run names include algorithm, environment, timestamp, a launch identifier and
 `-seed<N>`, for example `DDQN-CliffWalking-<timestamp>-<id>-seed0`.
 `--wandb-name` changes the shared name prefix; the seed suffix is retained.
@@ -84,7 +90,11 @@ is retained. Local `episodes.jsonl` keeps the individual raw records.
 `train/epsilon` records the epsilon-greedy action-selection rate for the next
 decision at each logged step (1 during warmup). RARe also records its separate
 `train/expected_policy_epsilon`. Greedy evaluation logs `eval/policy_epsilon=0`;
-Grid risk diagnostics log their counterfactual rate as `eval/risk_epsilon`.
+Grid risk diagnostics log the actual behavior-policy rate as `eval/risk_epsilon`.
+RARe-se and RARe-sh-eval also log `eval/target_risk_epsilon` and `eval/target_*`
+against their distinct skip-target policy. The common `eval/risk_*` always
+uses the behavior policy. W&B charts show chunk `train/base_q_updates` and
+`train/skip_q_updates`; cumulative update counters stay in local metrics.
 Batched GPU training stays simultaneous: one command
 finishes once all selected seeds reach the per-seed interaction budget.
 Other W&B settings follow the unified CLI, including its current online
@@ -180,9 +190,10 @@ separate offline-analysis launcher in this change.
 At each evaluation checkpoint, freeze the behavior epsilon-greedy policy for
 the common True Risk comparison. All algorithms use their online base Q to
 choose greedy action identities and the same training-epsilon schedule;
-during uniform warmup epsilon is 1. Separate RARe additionally freezes its
-own evaluation-critic policy at the same epsilon for a separately named
-target-policy diagnostic. The network's predicted Q magnitudes never supply
+during uniform warmup epsilon is 1. RARe-se additionally freezes its
+evaluation-critic policy with its independent target epsilon. RARe-sh-eval
+uses base Q with that independent target epsilon. Both receive separately
+named target-policy diagnostics. The network's predicted Q magnitudes never supply
 exact reference values. Ties follow the existing first-argmax rule.
 Each frozen policy is defined on every cell for every possible goal, including
 cells not visited by greedy evaluation. Continuation uses primitive actions

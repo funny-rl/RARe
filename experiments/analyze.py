@@ -16,6 +16,7 @@ from diagnostics.auc import auc_statistics, grid_reward_ceiling, normalize_rewar
 
 
 ALGORITHMS = ("DDQN", "TempoRL", "UTE", "RARe-sh", "RARe-se")
+SUPPORTED_ALGORITHMS = (*ALGORITHMS, "RARe-sh-eval")
 
 
 def _integer(value, name):
@@ -30,7 +31,10 @@ def _algorithm(metadata):
         mode = metadata["config"].get("rare_q_mode", "separate")
         if mode not in ("shared", "separate"):
             raise ValueError(f"unknown RARe mode: {mode}")
-        return "RARe-sh" if mode == "shared" else "RARe-se"
+        if mode == "separate":
+            return "RARe-se"
+        return ("RARe-sh-eval" if metadata["config"].get("shared_target_epsilon_source") == "evaluation"
+                else "RARe-sh")
     if algorithm not in ALGORITHMS:
         raise ValueError(f"unsupported algorithm: {algorithm}")
     return algorithm
@@ -39,7 +43,7 @@ def _algorithm(metadata):
 def load_completed_cohort(paths, *, algorithms=ALGORITHMS):
     """Read each log once; reject incomplete, mismatched or duplicated seeds."""
     algorithms = tuple(algorithms)
-    if not algorithms or len(set(algorithms)) != len(algorithms) or set(algorithms) - set(ALGORITHMS):
+    if not algorithms or len(set(algorithms)) != len(algorithms) or set(algorithms) - set(SUPPORTED_ALGORITHMS):
         raise ValueError("algorithms must be distinct supported comparison labels")
     paths = [Path(path).resolve() for path in paths]
     if len(set(paths)) != len(paths):
@@ -297,7 +301,7 @@ def main(argv=None):
     parser.add_argument("--output", required=True, type=Path, help="new analysis directory; refuses overwriting")
     parser.add_argument("--reward-min", type=float, default=-100., help="common reward floor (default: -100); lower rewards clip to zero")
     parser.add_argument("--reward-max", type=float, help="single-case ceiling override; random grids always use exact per-case optima")
-    parser.add_argument("--algorithms", nargs="+", choices=ALGORITHMS, default=ALGORITHMS,
+    parser.add_argument("--algorithms", nargs="+", choices=SUPPORTED_ALGORITHMS, default=ALGORITHMS,
                         help="complete comparison cohort; default: all five algorithms/RARe variants")
     plots = parser.add_mutually_exclusive_group()
     plots.add_argument("--plot", dest="plots", action="store_true", help="also export a mean/std figure; disabled by default")

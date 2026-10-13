@@ -39,10 +39,14 @@ algorithms:
     bootstrap_probability: 0.5
   RARe:
     rare_q_mode: separate  # separate | shared, also configurable with --rare-q-mode
+    shared_target_epsilon_source: behavior  # shared-only ablation: evaluation
     max_skip: 6
     skip_replay_capacity: null
     skip_learning_rate: null
     use_data_aug: true
+    max_eval_epsilon: 0.2  # pi_e for RARe-se and optional RARe-sh-eval
+    min_eval_epsilon: 0.01
+    eval_epsilon_cutoff: 1.0
     eval_learning_rate: null  # separate only; inherits common.learning_rate
 
 environments:
@@ -50,6 +54,9 @@ environments:
     common:
       total_steps: 15000
       warmup_steps: 2000
+    algorithms:
+      RARe:
+        max_eval_epsilon: 0.1
   Bridge:
     common:
       total_steps: 23000

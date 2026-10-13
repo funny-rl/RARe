@@ -29,8 +29,12 @@ class SkipRunConfig(DDQNRunConfig):
     ensemble_size: int = 5
     uncertainty_factor: float = -1.5
     bootstrap_probability: float = .5
+    max_eval_epsilon: float = .2
+    min_eval_epsilon: float = .01
+    eval_epsilon_cutoff: float = 1.
     eval_learning_rate: float | None = None
     rare_q_mode: str = "separate"
+    shared_target_epsilon_source: str = "behavior"
 
     def __post_init__(self):
         super().__post_init__()
@@ -40,6 +44,10 @@ class SkipRunConfig(DDQNRunConfig):
             raise ValueError("rare_q_mode must be 'separate' or 'shared'")
         if self.algorithm != "RARe" and self.rare_q_mode != "separate":
             raise ValueError("rare_q_mode='shared' requires RARe")
+        if self.shared_target_epsilon_source not in ("behavior", "evaluation"):
+            raise ValueError("shared_target_epsilon_source must be 'behavior' or 'evaluation'")
+        if self.shared_target_epsilon_source != "behavior" and (self.algorithm != "RARe" or self.rare_q_mode != "shared"):
+            raise ValueError("shared_target_epsilon_source='evaluation' requires shared RARe")
         for name in ("max_skip", "skip_replay_capacity", "ensemble_size"):
             if type(getattr(self, name)) is not int or getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be a positive integer")
@@ -55,6 +63,10 @@ class SkipRunConfig(DDQNRunConfig):
             raise ValueError("UTE requires ensemble_size >= 2 for sample standard deviation")
         if not 0 < self.bootstrap_probability <= 1:
             raise ValueError("bootstrap_probability must lie in (0,1]")
+        if not 0 <= self.min_eval_epsilon <= self.max_eval_epsilon <= 1:
+            raise ValueError("evaluation epsilons must satisfy 0 <= min <= max <= 1")
+        if not math.isfinite(self.eval_epsilon_cutoff) or self.eval_epsilon_cutoff <= 0:
+            raise ValueError("eval_epsilon_cutoff must be finite and positive")
 
 
 class SkipRunState(NamedTuple):
@@ -129,9 +141,14 @@ class SkipRunner(DDQNRunner):
         )
 
     def _evaluation_epsilon(self, steps):
-        # One schedule defines both the behavior policy and RARe's target
-        # policy, including custom decay settings and uniform warmup.
-        return self._epsilon(steps)
+        # Shared RARe uses the behavior policy; Separate retains its pi_e.
+        if self.config.rare_q_mode == "shared" and self.config.shared_target_epsilon_source == "behavior":
+            return self._epsilon(steps)
+        duration = max(self.config.total_steps - self.config.warmup_steps, 1)
+        progress = jnp.clip((steps - self.config.warmup_steps) /
+                            (duration * self.config.eval_epsilon_cutoff), 0., 1.)
+        return (self.config.max_eval_epsilon - progress *
+                (self.config.max_eval_epsilon - self.config.min_eval_epsilon))
 
     def _rate(self, steps, initial):
         initial = self.config.learning_rate if initial is None else initial
@@ -204,8 +221,7 @@ class SkipRunner(DDQNRunner):
 
     def _skip_bootstrap(self, learner, evaluation, observations, steps):
         if self.config.algorithm == "RARe":
-            # Shared follows behavior Q; Separate retains its own evaluation
-            # policy and critic while using the same epsilon schedule.
+            # Shared uses base Q, Separate its own critic; both use pi_e epsilon.
             critic = evaluation if self.config.rare_q_mode == "separate" else learner
             probabilities = epsilon_greedy_probs(apply_q(critic.online_params, observations),
                                                   self._evaluation_epsilon(steps))

@@ -62,21 +62,26 @@ def parser():
     result.add_argument("--eval-episodes", type=parse_evaluation_episodes, default=argparse.SUPPRESS,
                         help="'all' evaluates every grid start-goal pair once; positive N samples N episodes; default: fixed=1, random=all")
     result.add_argument("--risk-diagnostics", dest="eval_risk_diagnostics", action=argparse.BooleanOptionalAction,
-                        default=argparse.SUPPRESS, help="exact Grid skip-value and Eq. 3 risk errors; excludes DDQN; default: enabled")
+                        default=argparse.SUPPRESS,
+                        help="exact Grid skip-value and V*-minus-V-policy risk errors; excludes DDQN; default: enabled")
     result.add_argument("--model-save-interval", type=int,
                         help="override default saves at 20/40/60/80/100%% of total steps per seed (rounded up; fewer than 5 steps deduplicate); positive N saves every N steps plus final, 0 disables saves")
     result.add_argument("--wandb-mode", choices=("disabled", "offline", "online"), default="online",
                         help="W&B logging mode; offline records locally without uploading")
     result.add_argument("--wandb-project", help="fixed to RARe-<environment>, with R prefix for random mode; only the matching name is accepted")
     result.add_argument("--wandb-entity", default="singfor7012", help="W&B team or user name")
-    result.add_argument("--wandb-name", help="W&B run-name prefix; default: <algorithm>-<environment>-<timestamp>-<unique id>, with RARe-sh/RARe-se; each seed adds -seed<N>")
+    result.add_argument("--wandb-name", help="W&B run-name prefix; RARe groups are RARe-sh, RARe-sh-eval or RARe-se; each seed adds -seed<N>")
     for name in ("max_skip", "skip_replay_capacity", "ensemble_size"):
         result.add_argument("--" + name.replace("_", "-"), type=int, default=argparse.SUPPRESS)
-    for name in ("skip_learning_rate", "uncertainty_factor", "bootstrap_probability", "eval_learning_rate"):
+    for name in ("skip_learning_rate", "uncertainty_factor", "bootstrap_probability",
+                 "max_eval_epsilon", "min_eval_epsilon", "eval_epsilon_cutoff", "eval_learning_rate"):
         result.add_argument("--" + name.replace("_", "-"), type=float, default=argparse.SUPPRESS)
     result.add_argument("--data-aug", dest="use_data_aug", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
     result.add_argument("--rare-q-mode", choices=("separate", "shared"), default=argparse.SUPPRESS,
-                        help="RARe only: separate Expected SARSA Q (default), or reuse base DDQN Q for expected skip targets and risk policy")
+                        help="RARe only: separate Expected SARSA Q (default), or reuse base DDQN Q for skip targets")
+    result.add_argument("--shared-target-epsilon-source", choices=("behavior", "evaluation"),
+                        default=argparse.SUPPRESS,
+                        help="shared RARe only: target uses behavior epsilon (default), or the independent evaluation schedule")
     result.add_argument("--no-lr-decay", dest="lr_decay", action="store_false", default=argparse.SUPPRESS)
     result.add_argument("--soft-target", dest="hard_target", action="store_false", default=argparse.SUPPRESS)
     return result
