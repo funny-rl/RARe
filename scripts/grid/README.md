@@ -20,8 +20,12 @@ If omitted, GPU and seeds follow the unified CLI defaults: GPU 0 and seed 0.
 
 Fixed Grid launchers use the YAML budgets: CliffWalking 15,000, Bridge 23,000,
 and ZigZag 30,000 primitive steps per seed. Random Grid launchers set
-CliffWalking to 50,000, Bridge to 100,000 and ZigZag to 200,000 steps per seed. These
+CliffWalking to 50,000, Bridge to 150,000 and ZigZag to 200,000 steps per seed. These
 launcher defaults can be changed with an explicit `--total-steps N` argument.
+For Random Bridge and ZigZag, launcher defaults keep primitive replay at
+100,000 and skip replay at 300,000 records per seed even as training continues
+past 100,000 steps. DDQN has no skip replay. All Grid observations are stored
+as exact uint8 values 0–3 and converted back to float32 when sampled.
 The current 20-seed campaign passed `--model-save-interval 0` to every run.
 
 All remaining options go to `python -m experiments.train` unchanged.
@@ -114,7 +118,7 @@ at 3300 with interval 300. Fractional offsets round up and duplicate points
 are removed. All-warmup budgets have no evaluation. Previously completed
 runs retain their original checkpoints and are never rewritten.
 With the Random Grid launcher budgets, RCliffWalking starts at 2500 and ends
-at 50000; RBridge starts at 4000 and ends at 100000; RZigZag starts at 5000
+at 50000; RBridge starts at 4500 and ends at 150000; RZigZag starts at 5000
 and ends at 200000.
 Fixed environments evaluate one episode per checkpoint. Random environments
 enumerate every start-goal pair exactly once: RCliffWalking evaluates 16 pairs,

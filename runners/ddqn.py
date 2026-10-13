@@ -113,7 +113,8 @@ class DDQNRunner:
         rngs = rngs._replace(model_init=model_key, environment=environment_key)
         learner = init_ddqn_state(init_key, self.env.observation_shape[0], self.env.num_actions, self.config.hidden_dim)
         return DDQNRunState(
-            learner, init_replay(self.config.replay_capacity, self.env.observation_shape), rngs,
+            learner, init_replay(self.config.replay_capacity, self.env.observation_shape,
+                                 observation_dtype=getattr(self.env, "observation_storage_dtype", jnp.float32)), rngs,
             env_state, observation, jnp.asarray(0, jnp.int32), jnp.asarray(0, jnp.int32),
             jnp.asarray(0., jnp.float32), jnp.asarray(-1, jnp.int32),
         )

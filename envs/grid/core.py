@@ -140,6 +140,7 @@ class GridEnv:
     """
 
     backend = "rare_jax"
+    observation_storage_dtype = jnp.uint8
 
     def __init__(self, spec: GridSpec):
         self.spec = spec

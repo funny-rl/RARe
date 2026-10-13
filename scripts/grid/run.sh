@@ -26,10 +26,16 @@ case "$grid_mode" in
     random)
         case "$grid_env" in
             CliffWalking) grid_steps=50000 ;;
-            Bridge) grid_steps=100000 ;;
+            Bridge) grid_steps=150000 ;;
             ZigZag) grid_steps=200000 ;;
         esac
         mode_args=(--random --total-steps "$grid_steps")
+        if (( grid_steps >= 100000 )); then
+            mode_args+=(--replay-capacity 100000)
+            if [[ "$grid_algorithm" != DDQN ]]; then
+                mode_args+=(--skip-replay-capacity 300000)
+            fi
+        fi
         grid_project="RARe-R$grid_env"
         ;;
     *) echo "Unknown grid mode: $grid_mode" >&2; exit 2 ;;

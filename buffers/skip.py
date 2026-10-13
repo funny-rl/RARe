@@ -53,21 +53,24 @@ class SkipReplayState(NamedTuple):
     size: jax.Array
 
 
-def init_skip_replay(capacity: int, obs_shape: tuple[int, ...]) -> SkipReplayState:
-    """Allocate an empty discrete-action skip replay; dimensions are static."""
+def init_skip_replay(capacity: int, obs_shape: tuple[int, ...], *, observation_dtype=jnp.float32) -> SkipReplayState:
+    """Allocate skip replay; uint8 observations require exact integral encodings."""
     if type(capacity) is not int or capacity <= 0:
         raise ValueError("capacity must be a positive Python integer")
     if (not isinstance(obs_shape, tuple) or not obs_shape
             or any(type(size) is not int or size <= 0 for size in obs_shape)):
         raise ValueError("obs_shape must be a nonempty tuple of positive Python integers")
+    observation_dtype = jnp.dtype(observation_dtype)
+    if observation_dtype not in (jnp.dtype(jnp.float32), jnp.dtype(jnp.uint8)):
+        raise ValueError("observation storage dtype must be float32 or uint8")
     return SkipReplayState(
         data=SkipBatch(
-            observations=jnp.zeros((capacity, *obs_shape), dtype=jnp.float32),
+            observations=jnp.zeros((capacity, *obs_shape), dtype=observation_dtype),
             actions=jnp.zeros(capacity, dtype=jnp.int32),
             skips=jnp.zeros(capacity, dtype=jnp.int32),
             returns=jnp.zeros(capacity, dtype=jnp.float32),
             discounts=jnp.zeros(capacity, dtype=jnp.float32),
-            next_observations=jnp.zeros((capacity, *obs_shape), dtype=jnp.float32),
+            next_observations=jnp.zeros((capacity, *obs_shape), dtype=observation_dtype),
             terminated=jnp.zeros(capacity, dtype=jnp.bool_),
             truncated=jnp.zeros(capacity, dtype=jnp.bool_),
             selected_skips=jnp.zeros(capacity, dtype=jnp.int32),
@@ -181,7 +184,7 @@ def add_skip_segment(
     keep = valid & (ranks >= count - capacity)
     indices = jnp.where(keep, (state.write_index + ranks) % capacity, capacity)
     data = jax.tree.map(
-        lambda storage, values: storage.at[indices].set(values, mode="drop"),
+        lambda storage, values: storage.at[indices].set(values.astype(storage.dtype), mode="drop"),
         state.data, records,
     )
     return SkipReplayState(
@@ -201,4 +204,6 @@ def sample_skip_batch(key: jax.Array, state: SkipReplayState, batch_size: int) -
         raise ValueError("batch_size must be a positive Python integer")
     _require(state.size > 0, "cannot sample an empty skip replay")
     indices = jax.random.randint(key, (batch_size,), 0, state.size)
-    return jax.tree.map(lambda storage: storage[indices], state.data)
+    sampled = jax.tree.map(lambda storage: storage[indices], state.data)
+    return sampled._replace(observations=sampled.observations.astype(jnp.float32),
+                            next_observations=sampled.next_observations.astype(jnp.float32))

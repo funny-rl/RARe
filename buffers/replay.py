@@ -27,23 +27,27 @@ class ReplayState(NamedTuple):
     size: jax.Array
 
 
-def init_replay(capacity: int, obs_shape: tuple[int, ...]) -> ReplayState:
-    """Allocate empty float32 observation/reward storage for one experiment.
+def init_replay(capacity: int, obs_shape: tuple[int, ...], *, observation_dtype=jnp.float32) -> ReplayState:
+    """Allocate float32 rewards and configurable observation storage.
 
     Actions are scalar int32 indices. Previous action -1 means absent, as at
     episode start. Capacity and observation shape must be static under jit.
+    Use uint8 only when environment observations are exactly integral 0–255.
     """
     if type(capacity) is not int or capacity <= 0:
         raise ValueError("capacity must be a positive Python integer")
     if (not isinstance(obs_shape, tuple) or not obs_shape
             or any(type(size) is not int or size <= 0 for size in obs_shape)):
         raise ValueError("obs_shape must be a nonempty tuple of positive Python integers")
+    observation_dtype = jnp.dtype(observation_dtype)
+    if observation_dtype not in (jnp.dtype(jnp.float32), jnp.dtype(jnp.uint8)):
+        raise ValueError("observation storage dtype must be float32 or uint8")
     return ReplayState(
         data=ReplayBatch(
-            observations=jnp.zeros((capacity, *obs_shape), dtype=jnp.float32),
+            observations=jnp.zeros((capacity, *obs_shape), dtype=observation_dtype),
             actions=jnp.zeros((capacity,), dtype=jnp.int32),
             rewards=jnp.zeros((capacity,), dtype=jnp.float32),
-            next_observations=jnp.zeros((capacity, *obs_shape), dtype=jnp.float32),
+            next_observations=jnp.zeros((capacity, *obs_shape), dtype=observation_dtype),
             terminated=jnp.zeros((capacity,), dtype=jnp.bool_),
             truncated=jnp.zeros((capacity,), dtype=jnp.bool_),
             previous_actions=jnp.full((capacity,), -1, dtype=jnp.int32),
@@ -91,7 +95,7 @@ def add_transition(
         previous_actions=transition.previous_actions.astype(jnp.int32),
     )
     data = jax.tree.map(
-        lambda storage, value: storage.at[state.write_index].set(value),
+        lambda storage, value: storage.at[state.write_index].set(value.astype(storage.dtype)),
         state.data, transition,
     )
     capacity = state.data.actions.shape[0]
@@ -116,4 +120,6 @@ def sample_batch(key: jax.Array, state: ReplayState, batch_size: int) -> ReplayB
         raise ValueError("cannot sample an empty replay")
     checkify.debug_check(state.size > 0, "cannot sample an empty replay")
     indices = jax.random.randint(key, (batch_size,), 0, state.size)
-    return jax.tree.map(lambda storage: storage[indices], state.data)
+    sampled = jax.tree.map(lambda storage: storage[indices], state.data)
+    return sampled._replace(observations=sampled.observations.astype(jnp.float32),
+                            next_observations=sampled.next_observations.astype(jnp.float32))

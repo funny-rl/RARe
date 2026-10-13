@@ -129,7 +129,8 @@ class SkipRunner(DDQNRunner):
             evaluation = init_ddqn_state(eval_key, dimensions[0], dimensions[1], self.config.hidden_dim)
         return SkipRunState(
             *base._replace(rngs=base.rngs._replace(model_init=model_stream)), skip,
-            init_skip_replay(self.config.skip_replay_capacity, self.env.observation_shape), evaluation,
+            init_skip_replay(self.config.skip_replay_capacity, self.env.observation_shape,
+                             observation_dtype=getattr(self.env, "observation_storage_dtype", jnp.float32)), evaluation,
             self._empty_segment(base.observation), jnp.asarray(0, jnp.int32), jnp.asarray(True),
             jnp.asarray(0, jnp.int32),
         )
