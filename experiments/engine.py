@@ -110,6 +110,7 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
         algorithm_name = "RARe-se" if separate_rare else "RARe-sh-eval" if shared_eval else "RARe-sh"
     else:
         algorithm_name = algorithm
+    wandb_group = getattr(args, "wandb_group", None) or algorithm_name
     environment_name = ("R" if args.random else "") + args.env
     launch_id = uuid.uuid4().hex[:8]
     run_name = args.wandb_name or f"{algorithm_name}-{environment_name}-{stamp}-{launch_id}"
@@ -190,7 +191,7 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
         "rng_algorithm": "threefry2x32",
         "wandb": {"mode": args.wandb_mode, "project": args.wandb_project,
                   "entity": args.wandb_entity, "name": run_name,
-                  "group": algorithm_name, "run_count": 0 if args.wandb_mode == "disabled" else len(args.seeds)},
+                  "group": wandb_group, "run_count": 0 if args.wandb_mode == "disabled" else len(args.seeds)},
         "model_saving": {"mode": "fifths" if save_steps is not None else "interval",
                          "interval": args.model_save_interval, "steps": save_steps,
                          "unit": "primitive_steps_per_seed", "save_final": args.model_save_interval != 0,

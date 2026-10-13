@@ -79,7 +79,8 @@ def parser():
                         help="W&B logging mode; offline records locally without uploading")
     result.add_argument("--wandb-project", help="fixed to RARe-<environment>, with R prefix for random mode; only the matching name is accepted")
     result.add_argument("--wandb-entity", default="singfor7012", help="W&B team or user name")
-    result.add_argument("--wandb-name", help="W&B run-name prefix; RARe groups are RARe-sh, RARe-sh-eval or RARe-se; each seed adds -seed<N>")
+    result.add_argument("--wandb-name", help="W&B run-name prefix; each seed adds -seed<N>")
+    result.add_argument("--wandb-group", help="W&B group; defaults to the algorithm label, override for distinct ablations")
     for name in ("max_skip", "skip_replay_capacity", "ensemble_size", "compare_horizon"):
         result.add_argument("--" + name.replace("_", "-"), type=int, default=argparse.SUPPRESS)
     for name in ("skip_learning_rate", "uncertainty_factor", "bootstrap_probability",
@@ -104,6 +105,10 @@ def main(argv=None):
     if args.wandb_project is not None and args.wandb_project != project:
         argument_parser.error(f"wandb-project is fixed to {project}")
     args.wandb_project = project
+    if args.wandb_group is not None:
+        args.wandb_group = args.wandb_group.strip()
+        if not args.wandb_group:
+            argument_parser.error("wandb-group must not be empty")
     args.launch_argv = list(sys.argv[1:] if argv is None else argv)
     renamed = {"lr_decay": "use_lr_decay", "hard_target": "use_hard_update", "target_interval": "update_interval"}
     overrides = {renamed.get(key, key): value for key, value in vars(args).items()

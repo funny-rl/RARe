@@ -99,6 +99,8 @@ RARe-sh, RARe-sh-eval or RARe-se). Thus `--seeds 0:20` creates 20 runs for seeds
 run names include algorithm, environment, timestamp, a launch identifier and
 `-seed<N>`, for example `DDQN-CliffWalking-<timestamp>-<id>-seed0`.
 `--wandb-name` changes the shared name prefix; the seed suffix is retained.
+`--wandb-group` overrides the algorithm group for a distinct ablation, such as
+`RARe-se-eps0p1to0`; the fixed environment project name stays the same.
 Each run uses common `train/*` and `eval/*` metric names for comparison and
 group aggregation. Training episode records are flat `train/return`,
 `train/length`, `train/terminated`, `train/truncated` and `train/episode_index`,
