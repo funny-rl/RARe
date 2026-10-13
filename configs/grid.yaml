@@ -59,7 +59,7 @@ environments:
         max_eval_epsilon: 0.1
   Bridge:
     common:
-      total_steps: 23000
+      total_steps: 25000
       warmup_steps: 3000
   ZigZag:
     common:

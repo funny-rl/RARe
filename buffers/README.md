@@ -18,7 +18,7 @@ from rng import init_rngs
 
 env = make_grid_env("Bridge", random=True)
 rngs = init_rngs(42)
-replay = init_replay(capacity=23_000, obs_shape=env.observation_shape)
+replay = init_replay(capacity=100_000, obs_shape=env.observation_shape)
 
 environment_key, reset_key, step_key = jax.random.split(rngs.environment, 3)
 rngs = rngs._replace(environment=environment_key)
