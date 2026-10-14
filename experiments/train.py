@@ -89,7 +89,7 @@ def parser():
                         help="override default saves at 20/40/60/80/100%% of total steps per seed (rounded up; fewer than 5 steps deduplicate); positive N saves every N steps plus final, 0 disables saves")
     result.add_argument("--wandb-mode", choices=("disabled", "offline", "online"), default="online",
                         help="W&B logging mode; offline records locally without uploading")
-    result.add_argument("--wandb-project", help="fixed to RARe-<environment>, with R prefix for random mode; only the matching name is accepted")
+    result.add_argument("--wandb-project", help="fixed to RARe-<environment>; WindShift adds its effective direction-reversal count")
     result.add_argument("--wandb-entity", default="singfor7012", help="W&B team or user name")
     result.add_argument("--wandb-name", help="W&B run-name prefix; each seed adds -seed<N>")
     result.add_argument("--wandb-group", help="W&B group; defaults to the algorithm label, override for distinct ablations")
@@ -116,10 +116,6 @@ def parser():
 def main(argv=None):
     argument_parser = parser()
     args = argument_parser.parse_args(argv)
-    project = f"RARe-{'R' if args.random else ''}{args.env}"
-    if args.wandb_project is not None and args.wandb_project != project:
-        argument_parser.error(f"wandb-project is fixed to {project}")
-    args.wandb_project = project
     if args.wandb_group is not None:
         args.wandb_group = args.wandb_group.strip()
         if not args.wandb_group:
@@ -133,6 +129,18 @@ def main(argv=None):
             raise ValueError("chunk-steps must be positive and model-save-interval nonnegative")
         configure_device(args)
         common, specific, inputs = resolve_config(args.config, args.env, args.algorithm, overrides)
+        project = f"RARe-{'R' if args.random else ''}{args.env}"
+        if args.env == "WindShift":
+            if args.wind_switch_steps is not None:
+                shifts = sum(step <= common["total_steps"] for step in args.wind_switch_steps)
+                project = f"{project}-{shifts}"
+            elif args.wind_switch_interval is not None:
+                shifts = (common["total_steps"] // args.wind_switch_interval
+                          if args.wind_switch_interval > 0 else 0)
+                project = f"{project}-{shifts}"
+        if args.wandb_project is not None and args.wandb_project != project:
+            raise ValueError(f"wandb-project is fixed to {project}")
+        args.wandb_project = project
         args.evaluation_config = resolve_evaluation_config(inputs, args.env, args.random, {
             key.removeprefix("eval_"): value for key, value in vars(args).items()
             if key in ("eval_interval_fraction", "eval_interval_steps", "eval_episodes", "eval_risk_diagnostics")

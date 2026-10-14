@@ -29,7 +29,7 @@ def load_condition(campaign, shifts, algorithm):
         run = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
         spec = run["environment"]["spec"]
         assert run["status"] == "completed" and not run["model_saved"]
-        assert run["wandb"]["project"] == "RARe-WindShift"
+        assert run["wandb"]["project"] in ("RARe-WindShift", f"RARe-WindShift-{shifts}")
         assert run["wandb"]["group"] == algorithm and len(run["wandb"]["runs"]) == 5
         assert run["config"]["total_steps"] == 60000 and run["config"]["warmup_steps"] == 3000
         if algorithm == "RARe-se-behavior":
@@ -100,7 +100,10 @@ def render(campaign, summary, algorithms):
              "The wind gust probability is 0.5. Training uses 60,000 primitive steps, including 3,000 warmup steps.",
              "Frozen greedy evaluation runs 20 stochastic episodes every 1,000 steps, at steps 4,000–60,000.",
              "Exact deterministic-grid risk diagnostics are disabled for this stochastic wind environment; this report compares policy performance.",
-             "No models are saved. W&B project: [RARe-WindShift](https://wandb.ai/singfor7012/RARe-WindShift).", "",
+             "No models are saved. W&B projects: "
+             + ", ".join(f"[RARe-WindShift-{shifts}](https://wandb.ai/singfor7012/RARe-WindShift-{shifts})"
+                         for shifts in CONDITIONS) + ".",
+             "Completed legacy runs were moved from RARe-WindShift after logging. Their run.json files retain the original project; wandb_project_migration.json verifies current membership.", "",
              "The 2-shift condition reverses at steps 20,000 and 40,000; the 4-shift condition at 20,000, 30,000, 40,000, and 50,000. Both have the same first change point.",
              "For each algorithm and seed, all three schedules have identical evaluation records before step 20,000; the analyzer verifies this.",
              "The primary post-change AUC is each seed's trapezoidal time average over steps 20,000–60,000, including the immediate evaluation at the first switch. Full AUC spans 4,000–60,000 as a secondary learning-speed measure.",

@@ -23,14 +23,18 @@ The visible-wind nonstationary comparison has its own resumable launcher:
 
 ```bash
 bash /data/RARe/scripts/grid/windshift_campaign.sh
+bash /data/RARe/scripts/grid/windshift_rare_se_behavior_campaign.sh
 python /data/RARe/scripts/grid/analyze_windshift.py /data/RARe/runs/campaigns/windshift-visible-60k
 ```
 
 It compares 0, 2 and 4 direction reversals at a common first switch on step
-20,000. All six variants use 20 matched seeds, four balanced layout/initial-wind
+20,000. The second launcher adds the separate-critic RARe group whose target
+epsilon follows behavior epsilon (1 to 0), leaving completed groups untouched.
+All variants use 20 matched seeds, four balanced layout/initial-wind
 blocks, 60,000 training steps, 3,000 warmup steps and 20 stochastic evaluation
 episodes every 1,000 steps. It uses physical GPUs 0–3, logs each seed to
-`RARe-WindShift` and saves no models. The analysis writes a local report and
+`RARe-WindShift-0`, `RARe-WindShift-2` or `RARe-WindShift-4` and saves no models.
+The analysis writes a local report and
 success-rate curves; it checks every batch and the identical pre-switch records.
 
 Fixed Grid launchers use the YAML budgets: CliffWalking 15,000, Bridge 25,000,
@@ -108,6 +112,7 @@ W&B projects are fixed to `RARe-CliffWalking`, `RARe-Bridge`, `RARe-ZigZag`,
 `RARe-RCliffWalking`, `RARe-RBridge`, `RARe-RZigZag`. All five model variants
 for an environment share that project. A launcher rejects `--wandb-project`
 overrides; direct unified CLI calls also reject a mismatching project name.
+WindShift uses one project per effective wind-reversal count.
 Each seed has its own W&B run, grouped by algorithm (DDQN, TempoRL, UTE,
 RARe-sh, RARe-sh-eval or RARe-se). Thus `--seeds 0:20` creates 20 runs for seeds 0 through 19. Default
 run names include algorithm, environment, timestamp, a launch identifier and
