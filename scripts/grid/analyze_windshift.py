@@ -8,7 +8,7 @@ import numpy as np
 
 
 BASE_ALGORITHMS = ("DDQN", "TempoRL", "UTE", "TAACDiscrete", "RARe-se", "RARe-sh")
-OPTIONAL_ALGORITHMS = ("RARe-se-behavior",)
+OPTIONAL_ALGORITHMS = ("RARe-se-behavior", "RARe-sh-eval")
 CONDITIONS = (0, 2, 4)
 BLOCKS = (("descending", "north"), ("descending", "south"),
           ("ascending", "north"), ("ascending", "south"))
@@ -36,6 +36,16 @@ def load_condition(campaign, shifts, algorithm):
             assert run["config"]["rare_q_mode"] == "separate"
             assert run["config"]["separate_target_epsilon_source"] == "behavior"
             assert run["config"]["max_epsilon"] == 1.0 and run["config"]["min_epsilon"] == 0.0
+            assert run["config"]["epsilon_schedule"] == "linear"
+            assert run["config"]["epsilon_decay_steps"] == 57000
+        if algorithm == "RARe-sh-eval":
+            assert run["config"]["rare_q_mode"] == "shared"
+            assert run["config"]["shared_target_epsilon_source"] == "evaluation"
+            assert run["config"]["max_eval_epsilon"] == 0.2
+            assert run["config"]["min_eval_epsilon"] == 0.01
+            assert run["config"]["eval_epsilon_cutoff"] == 1.0
+            assert run["config"]["max_epsilon"] == 1.0
+            assert run["config"]["min_epsilon"] == 0.0
             assert run["config"]["epsilon_schedule"] == "linear"
             assert run["config"]["epsilon_decay_steps"] == 57000
         assert run["evaluation"]["episodes"] == 20
@@ -103,7 +113,7 @@ def render(campaign, summary, algorithms):
              "No models are saved. W&B projects: "
              + ", ".join(f"[RARe-WindShift-{shifts}](https://wandb.ai/singfor7012/RARe-WindShift-{shifts})"
                          for shifts in CONDITIONS) + ".",
-             "Completed legacy runs were moved from RARe-WindShift after logging. Their run.json files retain the original project; wandb_project_migration.json verifies current membership.", "",
+             "Completed legacy runs were moved from RARe-WindShift after logging. Their run.json files retain the original project; wandb_project_migration.json verifies the migrated runs.", "",
              "The 2-shift condition reverses at steps 20,000 and 40,000; the 4-shift condition at 20,000, 30,000, 40,000, and 50,000. Both have the same first change point.",
              "For each algorithm and seed, all three schedules have identical evaluation records before step 20,000; the analyzer verifies this.",
              "The primary post-change AUC is each seed's trapezoidal time average over steps 20,000–60,000, including the immediate evaluation at the first switch. Full AUC spans 4,000–60,000 as a secondary learning-speed measure.",
@@ -112,6 +122,8 @@ def render(campaign, summary, algorithms):
              "Success and pit AUC lie in [0, 1]; reward AUC retains return units. Final success averages each seed's last five evaluations before computing cross-seed statistics.", ""]
     if "RARe-se-behavior" in algorithms:
         lines += ["RARe-se-behavior retains the separate Expected SARSA critic and matches its skip-target epsilon to behavior epsilon (1 to 0). RARe-se keeps the independent 0.2 to 0.01 target epsilon; RARe-sh shares base Q and behavior epsilon.", ""]
+    if "RARe-sh-eval" in algorithms:
+        lines += ["RARe-sh-eval shares base Q like RARe-sh, but its skip target uses independent epsilon 0.2 to 0.01 like RARe-se. Behavior epsilon stays 1 to 0 in all groups.", ""]
     for shifts in CONDITIONS:
         lines += [f"## {shifts} wind reversals", "",
                   "| Algorithm | Post-20k success AUC | Full success AUC | Post-20k reward AUC | Final 5k success |",
@@ -133,13 +145,19 @@ def render(campaign, summary, algorithms):
             return f"{item['mean']:+.3f} ± {item['sd']:.3f}"
         lines.append(f"| {algorithm} | {difference(2)} | {difference(4)} |")
     lines.append("")
-    if "RARe-se-behavior" in algorithms:
+    if "RARe-se-behavior" in algorithms or "RARe-sh-eval" in algorithms:
         lines += ["## RARe target-epsilon ablation", "",
                   "Paired differences in post-20k success AUC use matching seeds and environment blocks. Positive values favor the first named group.",
                   "", "| Contrast | 0 shifts | 2 shifts | 4 shifts |",
                   "|---|---:|---:|---:|"]
-        for first, second in (("RARe-se-behavior", "RARe-se"),
-                              ("RARe-sh", "RARe-se-behavior")):
+        contrasts = []
+        if "RARe-se-behavior" in algorithms:
+            contrasts.extend((("RARe-se-behavior", "RARe-se"),
+                              ("RARe-sh", "RARe-se-behavior")))
+        if "RARe-sh-eval" in algorithms:
+            contrasts.extend((("RARe-sh-eval", "RARe-sh"),
+                              ("RARe-sh-eval", "RARe-se")))
+        for first, second in contrasts:
             cells = []
             for shifts in CONDITIONS:
                 left = np.asarray(summary[str(shifts)][first]["per_seed_post20k_success_auc"])

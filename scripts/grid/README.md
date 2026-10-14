@@ -24,12 +24,15 @@ The visible-wind nonstationary comparison has its own resumable launcher:
 ```bash
 bash /data/RARe/scripts/grid/windshift_campaign.sh
 bash /data/RARe/scripts/grid/windshift_rare_se_behavior_campaign.sh
+bash /data/RARe/scripts/grid/windshift_rare_sh_eval_campaign.sh
 python /data/RARe/scripts/grid/analyze_windshift.py /data/RARe/runs/campaigns/windshift-visible-60k
 ```
 
 It compares 0, 2 and 4 direction reversals at a common first switch on step
 20,000. The second launcher adds the separate-critic RARe group whose target
 epsilon follows behavior epsilon (1 to 0), leaving completed groups untouched.
+The third adds shared-Q RARe with independent skip-target epsilon 0.2 to 0.01,
+also leaving completed groups untouched. Its behavior epsilon stays 1 to 0.
 All variants use 20 matched seeds, four balanced layout/initial-wind
 blocks, 60,000 training steps, 3,000 warmup steps and 20 stochastic evaluation
 episodes every 1,000 steps. It uses physical GPUs 0–3, logs each seed to
