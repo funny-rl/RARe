@@ -10,11 +10,11 @@ layouts=(descending descending ascending ascending)
 initial_winds=(north south north south)
 seed_ranges=(0:5 5:10 10:15 15:20)
 
-for shifts in 0 2 4; do
+for shifts in 0 1 2; do
     case "$shifts" in
         0) wind_schedule=(--wind-switch-interval 0) ;;
+        1) wind_schedule=(--wind-switch-steps 20000) ;;
         2) wind_schedule=(--wind-switch-steps 20000,40000) ;;
-        4) wind_schedule=(--wind-switch-steps 20000,30000,40000,50000) ;;
     esac
     pids=()
     for gpu in 0 1 2 3; do

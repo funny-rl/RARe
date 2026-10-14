@@ -9,10 +9,10 @@ import numpy as np
 
 BASE_ALGORITHMS = ("DDQN", "TempoRL", "UTE", "TAACDiscrete", "RARe-se", "RARe-sh")
 OPTIONAL_ALGORITHMS = ("RARe-se-behavior", "RARe-sh-eval")
-CONDITIONS = (0, 2, 4)
+CONDITIONS = (0, 1, 2)
 BLOCKS = (("descending", "north"), ("descending", "south"),
           ("ascending", "north"), ("ascending", "south"))
-SWITCH_STEPS = {0: (), 2: (20000, 40000), 4: (20000, 30000, 40000, 50000)}
+SWITCH_STEPS = {0: (), 1: (20000,), 2: (20000, 40000)}
 STEPS = np.arange(4000, 60001, 1000)
 
 
@@ -83,6 +83,11 @@ def score_condition(data, shifts):
         if key == "success_rate":
             metrics["per_seed_success_auc"] = auc.tolist()
             metrics["per_seed_post20k_success_auc"] = post_auc.tolist()
+            late = curves[:, STEPS >= 40000]
+            late_auc = (0.5 * late[:, 0] + late[:, 1:-1].sum(axis=1)
+                        + 0.5 * late[:, -1]) / (late.shape[1] - 1)
+            metrics["post40k_success_auc"] = mean_sd(late_auc)
+            metrics["per_seed_post40k_success_auc"] = late_auc.tolist()
             metrics["final_5k_success"] = mean_sd(curves[:, -5:].mean(axis=1))
             metrics["block_success_auc"] = {
                 f"{layout}-{initial}": mean_sd(auc[5 * block:5 * (block + 1)])
@@ -113,10 +118,11 @@ def render(campaign, summary, algorithms):
              "No models are saved. W&B projects: "
              + ", ".join(f"[RARe-WindShift-{shifts}](https://wandb.ai/singfor7012/RARe-WindShift-{shifts})"
                          for shifts in CONDITIONS) + ".",
-             "Completed legacy runs were moved from RARe-WindShift after logging. Their run.json files retain the original project; wandb_project_migration.json verifies the migrated runs.", "",
-             "The 2-shift condition reverses at steps 20,000 and 40,000; the 4-shift condition at 20,000, 30,000, 40,000, and 50,000. Both have the same first change point.",
+             "Some completed 0/2-shift runs were moved from RARe-WindShift after logging, so their local run.json files retain the original project name. The deleted 4-shift project is excluded from this analysis.", "",
+             "The 1-shift condition reverses at step 20,000; the 2-shift condition reverses at steps 20,000 and 40,000. The second reversal restores the initial wind direction, so performance need not decline monotonically with shift count.",
              "For each algorithm and seed, all three schedules have identical evaluation records before step 20,000; the analyzer verifies this.",
              "The primary post-change AUC is each seed's trapezoidal time average over steps 20,000–60,000, including the immediate evaluation at the first switch. Full AUC spans 4,000–60,000 as a secondary learning-speed measure.",
+             "The extra reversal at step 40,000 is compared with a paired 40,000–60,000 AUC, so the shared 20,000–40,000 phase does not dilute its measured effect.",
              "Each table reports the mean and sample standard deviation across 20 independent seeds.",
              "The standard deviation includes differences between the four matched layout/initial-wind blocks; block-specific scores are in summary.json.",
              "Success and pit AUC lie in [0, 1]; reward AUC retains return units. Final success averages each seed's last five evaluations before computing cross-seed statistics.", ""]
@@ -137,18 +143,30 @@ def render(campaign, summary, algorithms):
         lines.append("")
     lines += ["## Paired change from stationary wind", "",
               "Each difference subtracts the same seed's stationary post-20k success AUC, preserving the matched layout and initial wind. Negative values mean reduced success under shifts.",
-              "", "| Algorithm | 2 shifts − stationary | 4 shifts − stationary |",
+              "", "| Algorithm | 1 shift − stationary | 2 shifts − stationary |",
               "|---|---:|---:|"]
     for algorithm in algorithms:
         def difference(shifts):
             item = summary[str(shifts)][algorithm]["delta_vs_stationary"]
             return f"{item['mean']:+.3f} ± {item['sd']:.3f}"
-        lines.append(f"| {algorithm} | {difference(2)} | {difference(4)} |")
+        lines.append(f"| {algorithm} | {difference(1)} | {difference(2)} |")
+    lines.append("")
+    lines += ["## Effect of the second reversal", "",
+              "The 1- and 2-shift schedules are identical before step 40,000. The analyzer checks their pre-40,000 evaluation records match for every seed. This paired comparison measures performance after the extra reversal at step 40,000, which restores the initial wind direction; it does not isolate generic adaptation to more changes.",
+              "", "| Algorithm | 1 shift, 40k–60k success AUC | 2 shifts, 40k–60k success AUC | Paired 2 − 1 |",
+              "|---|---:|---:|---:|"]
+    for algorithm in algorithms:
+        one = summary["1"][algorithm]["post40k_success_auc"]
+        two = summary["2"][algorithm]["post40k_success_auc"]
+        paired = summary["2"][algorithm]["post40k_delta_vs_one_shift"]
+        lines.append(f"| {algorithm} | {one['mean']:.3f} ± {one['sd']:.3f} | "
+                     f"{two['mean']:.3f} ± {two['sd']:.3f} | "
+                     f"{paired['mean']:+.3f} ± {paired['sd']:.3f} |")
     lines.append("")
     if "RARe-se-behavior" in algorithms or "RARe-sh-eval" in algorithms:
         lines += ["## RARe target-epsilon ablation", "",
                   "Paired differences in post-20k success AUC use matching seeds and environment blocks. Positive values favor the first named group.",
-                  "", "| Contrast | 0 shifts | 2 shifts | 4 shifts |",
+                  "", "| Contrast | 0 shifts | 1 shift | 2 shifts |",
                   "|---|---:|---:|---:|"]
         contrasts = []
         if "RARe-se-behavior" in algorithms:
@@ -206,21 +224,30 @@ def main():
     data = {shifts: {algorithm: load_condition(campaign, shifts, algorithm)
                      for algorithm in algorithms} for shifts in CONDITIONS}
     before_first_shift = STEPS < 20000
+    before_second_shift = STEPS < 40000
     for algorithm in algorithms:
         for seed in range(20):
             for key in ("success_rate", "reward_sum", "pit_rate"):
-                for shifts in (2, 4):
+                for shifts in (1, 2):
                     np.testing.assert_array_equal(
                         data[0][algorithm][seed][key][before_first_shift],
                         data[shifts][algorithm][seed][key][before_first_shift],
                     )
+                np.testing.assert_array_equal(
+                    data[1][algorithm][seed][key][before_second_shift],
+                    data[2][algorithm][seed][key][before_second_shift],
+                )
     summary = {str(shifts): {algorithm: score_condition(data[shifts][algorithm], shifts)
                              for algorithm in algorithms} for shifts in CONDITIONS}
-    for shifts in (2, 4):
+    for shifts in (1, 2):
         for algorithm in algorithms:
             shifted = np.asarray(summary[str(shifts)][algorithm]["per_seed_post20k_success_auc"])
             stationary = np.asarray(summary["0"][algorithm]["per_seed_post20k_success_auc"])
             summary[str(shifts)][algorithm]["delta_vs_stationary"] = mean_sd(shifted - stationary)
+    for algorithm in algorithms:
+        twice = np.asarray(summary["2"][algorithm]["per_seed_post40k_success_auc"])
+        once = np.asarray(summary["1"][algorithm]["per_seed_post40k_success_auc"])
+        summary["2"][algorithm]["post40k_delta_vs_one_shift"] = mean_sd(twice - once)
     (campaign / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     render(campaign, summary, algorithms)
     plot(campaign, summary, algorithms)

@@ -28,17 +28,22 @@ bash /data/RARe/scripts/grid/windshift_rare_sh_eval_campaign.sh
 python /data/RARe/scripts/grid/analyze_windshift.py /data/RARe/runs/campaigns/windshift-visible-60k
 ```
 
-It compares 0, 2 and 4 direction reversals at a common first switch on step
-20,000. The second launcher adds the separate-critic RARe group whose target
+It compares 0, 1 and 2 direction reversals; both changed-wind conditions first
+switch at step 20,000, and the 2-switch condition changes again at step 40,000.
+The second launcher adds the separate-critic RARe group whose target
 epsilon follows behavior epsilon (1 to 0), leaving completed groups untouched.
 The third adds shared-Q RARe with independent skip-target epsilon 0.2 to 0.01,
 also leaving completed groups untouched. Its behavior epsilon stays 1 to 0.
 All variants use 20 matched seeds, four balanced layout/initial-wind
 blocks, 60,000 training steps, 3,000 warmup steps and 20 stochastic evaluation
 episodes every 1,000 steps. It uses physical GPUs 0–3, logs each seed to
-`RARe-WindShift-0`, `RARe-WindShift-2` or `RARe-WindShift-4` and saves no models.
+`RARe-WindShift-0`, `RARe-WindShift-1` or `RARe-WindShift-2` and saves no models.
 The analysis writes a local report and
 success-rate curves; it checks every batch and the identical pre-switch records.
+It also compares the second reversal over steps 40,000–60,000, since the
+1- and 2-reversal schedules are identical before step 40,000. The second
+reversal restores the initial wind direction, so shift count alone is not a
+monotonic difficulty scale. Historical 4-reversal local runs are excluded.
 
 Fixed Grid launchers use the YAML budgets: CliffWalking 15,000, Bridge 25,000,
 and ZigZag 35,000 primitive steps per seed. Random Grid launchers set
