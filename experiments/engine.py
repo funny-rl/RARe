@@ -103,11 +103,13 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
     algorithm = args.algorithm
     skip_algorithm = algorithm in ("TempoRL", "UTE", "RARe")
     separate_rare = algorithm == "RARe" and config.rare_q_mode == "separate"
+    separate_behavior = separate_rare and config.separate_target_epsilon_source == "behavior"
     shared_eval = (algorithm == "RARe" and config.rare_q_mode == "shared"
                    and config.shared_target_epsilon_source == "evaluation")
     distinct_target_policy = separate_rare or shared_eval
     if algorithm == "RARe":
-        algorithm_name = "RARe-se" if separate_rare else "RARe-sh-eval" if shared_eval else "RARe-sh"
+        algorithm_name = ("RARe-se-behavior" if separate_behavior else "RARe-se" if separate_rare
+                          else "RARe-sh-eval" if shared_eval else "RARe-sh")
     else:
         algorithm_name = algorithm
     wandb_group = getattr(args, "wandb_group", None) or algorithm_name
@@ -169,7 +171,8 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
                 "epsilon_source": "behavior_epsilon_including_warmup_for_every_algorithm",
                 "shared_rare_target_policy": ("base_online_with_independent_evaluation_epsilon" if shared_eval
                                                else "base_online_with_behavior_epsilon"),
-                "separate_rare_target_policy": "evaluation_online_with_independent_evaluation_epsilon",
+                "separate_rare_target_policy": ("evaluation_online_with_behavior_epsilon" if separate_behavior
+                                                 else "evaluation_online_with_independent_evaluation_epsilon"),
                 "distinct_target_metrics": "target_* for RARe-se or RARe-sh-eval; never pooled with behavior-risk errors",
                 "policy_frozen_per_checkpoint": True, "state_distribution": "own greedy evaluation decision points",
                 "lengths": "all 1..max_skip at every decision, including unselected and terminal lengths",
@@ -217,6 +220,7 @@ def run_experiment(args, config, env, jax, jnp, np, Runner):
             metadata["model_saving"]["contents"].extend(["evaluation_online_params", "evaluation_target_params"])
         metadata["protocol"].update(
             rare_q_mode=config.rare_q_mode,
+            separate_target_epsilon_source=config.separate_target_epsilon_source,
             shared_target_epsilon_source=config.shared_target_epsilon_source,
             evaluation_policy="own_online_epsilon_greedy" if separate_rare else "base_online_epsilon_greedy",
             evaluation_ensemble_size=1,

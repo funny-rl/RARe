@@ -102,6 +102,9 @@ def parser():
     result.add_argument("--data-aug", dest="use_data_aug", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
     result.add_argument("--rare-q-mode", choices=("separate", "shared"), default=argparse.SUPPRESS,
                         help="RARe only: separate Expected SARSA Q (default), or reuse base DDQN Q for skip targets")
+    result.add_argument("--separate-target-epsilon-source", choices=("evaluation", "behavior"),
+                        default=argparse.SUPPRESS,
+                        help="separate RARe only: independent target epsilon (default), or match behavior epsilon")
     result.add_argument("--shared-target-epsilon-source", choices=("behavior", "evaluation"),
                         default=argparse.SUPPRESS,
                         help="shared RARe only: target uses behavior epsilon (default), or the independent evaluation schedule")

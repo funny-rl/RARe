@@ -23,7 +23,8 @@ ALGORITHM_FIELDS = {
                      "target_actor_entropy_ratio", "compare_horizon"},
     "UTE": SKIP_FIELDS | {"ensemble_size", "uncertainty_factor", "bootstrap_probability"},
     "RARe": SKIP_FIELDS | {"max_eval_epsilon", "min_eval_epsilon", "eval_epsilon_cutoff",
-                            "eval_learning_rate", "rare_q_mode", "shared_target_epsilon_source"},
+                            "eval_learning_rate", "rare_q_mode", "separate_target_epsilon_source",
+                            "shared_target_epsilon_source"},
 }
 ENVIRONMENTS = {"CliffWalking", "Bridge", "ZigZag", "WindShift"}
 EVALUATION_FIELDS = {"interval_fraction", "interval_steps", "episodes", "random_episodes", "risk_diagnostics"}

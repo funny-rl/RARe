@@ -45,6 +45,7 @@ algorithms:
     bootstrap_probability: 0.5
   RARe:
     rare_q_mode: separate  # separate | shared, also configurable with --rare-q-mode
+    separate_target_epsilon_source: evaluation  # evaluation: independent 0.1/0.2->0.01; behavior: match action epsilon
     shared_target_epsilon_source: behavior  # shared-only ablation: evaluation
     max_skip: 6
     skip_replay_capacity: null

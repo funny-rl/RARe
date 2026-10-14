@@ -7,7 +7,8 @@ from pathlib import Path
 import numpy as np
 
 
-ALGORITHMS = ("DDQN", "TempoRL", "UTE", "TAACDiscrete", "RARe-se", "RARe-sh")
+BASE_ALGORITHMS = ("DDQN", "TempoRL", "UTE", "TAACDiscrete", "RARe-se", "RARe-sh")
+OPTIONAL_ALGORITHMS = ("RARe-se-behavior",)
 CONDITIONS = (0, 2, 4)
 BLOCKS = (("descending", "north"), ("descending", "south"),
           ("ascending", "north"), ("ascending", "south"))
@@ -31,6 +32,12 @@ def load_condition(campaign, shifts, algorithm):
         assert run["wandb"]["project"] == "RARe-WindShift"
         assert run["wandb"]["group"] == algorithm and len(run["wandb"]["runs"]) == 5
         assert run["config"]["total_steps"] == 60000 and run["config"]["warmup_steps"] == 3000
+        if algorithm == "RARe-se-behavior":
+            assert run["config"]["rare_q_mode"] == "separate"
+            assert run["config"]["separate_target_epsilon_source"] == "behavior"
+            assert run["config"]["max_epsilon"] == 1.0 and run["config"]["min_epsilon"] == 0.0
+            assert run["config"]["epsilon_schedule"] == "linear"
+            assert run["config"]["epsilon_decay_steps"] == 57000
         assert run["evaluation"]["episodes"] == 20
         assert spec.get("switch_steps", []) == list(SWITCH_STEPS[shifts]) and spec["observe_wind"]
         assert spec["switch_interval"] == 0
@@ -87,7 +94,7 @@ def score_condition(data, shifts):
     return metrics
 
 
-def render(campaign, summary):
+def render(campaign, summary, algorithms):
     lines = ["# WindShift: visible wind, matched 20-seed comparison", "",
              "Each algorithm uses seeds 0–19. Five seeds cover each of the four layout/initial-wind blocks.",
              "The wind gust probability is 0.5. Training uses 60,000 primitive steps, including 3,000 warmup steps.",
@@ -100,11 +107,13 @@ def render(campaign, summary):
              "Each table reports the mean and sample standard deviation across 20 independent seeds.",
              "The standard deviation includes differences between the four matched layout/initial-wind blocks; block-specific scores are in summary.json.",
              "Success and pit AUC lie in [0, 1]; reward AUC retains return units. Final success averages each seed's last five evaluations before computing cross-seed statistics.", ""]
+    if "RARe-se-behavior" in algorithms:
+        lines += ["RARe-se-behavior retains the separate Expected SARSA critic and matches its skip-target epsilon to behavior epsilon (1 to 0). RARe-se keeps the independent 0.2 to 0.01 target epsilon; RARe-sh shares base Q and behavior epsilon.", ""]
     for shifts in CONDITIONS:
         lines += [f"## {shifts} wind reversals", "",
                   "| Algorithm | Post-20k success AUC | Full success AUC | Post-20k reward AUC | Final 5k success |",
                   "|---|---:|---:|---:|---:|"]
-        for algorithm in ALGORITHMS:
+        for algorithm in algorithms:
             row = summary[str(shifts)][algorithm]
             def fmt(key, digits=3):
                 item = row[key]
@@ -115,23 +124,38 @@ def render(campaign, summary):
               "Each difference subtracts the same seed's stationary post-20k success AUC, preserving the matched layout and initial wind. Negative values mean reduced success under shifts.",
               "", "| Algorithm | 2 shifts − stationary | 4 shifts − stationary |",
               "|---|---:|---:|"]
-    for algorithm in ALGORITHMS:
+    for algorithm in algorithms:
         def difference(shifts):
             item = summary[str(shifts)][algorithm]["delta_vs_stationary"]
             return f"{item['mean']:+.3f} ± {item['sd']:.3f}"
         lines.append(f"| {algorithm} | {difference(2)} | {difference(4)} |")
     lines.append("")
+    if "RARe-se-behavior" in algorithms:
+        lines += ["## RARe target-epsilon ablation", "",
+                  "Paired differences in post-20k success AUC use matching seeds and environment blocks. Positive values favor the first named group.",
+                  "", "| Contrast | 0 shifts | 2 shifts | 4 shifts |",
+                  "|---|---:|---:|---:|"]
+        for first, second in (("RARe-se-behavior", "RARe-se"),
+                              ("RARe-sh", "RARe-se-behavior")):
+            cells = []
+            for shifts in CONDITIONS:
+                left = np.asarray(summary[str(shifts)][first]["per_seed_post20k_success_auc"])
+                right = np.asarray(summary[str(shifts)][second]["per_seed_post20k_success_auc"])
+                item = mean_sd(left - right)
+                cells.append(f"{item['mean']:+.3f} ± {item['sd']:.3f}")
+            lines.append(f"| {first} − {second} | " + " | ".join(cells) + " |")
+        lines.append("")
     (campaign / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def plot(campaign, summary):
+def plot(campaign, summary, algorithms):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 4.2), sharey=True, layout="constrained")
     for axis, shifts in zip(axes, CONDITIONS):
-        for algorithm in ALGORITHMS:
+        for algorithm in algorithms:
             row = summary[str(shifts)][algorithm]
             mean = np.asarray(row["mean_curve"])
             axis.plot(STEPS / 1000, mean, label=algorithm, linewidth=1.7)
@@ -150,10 +174,18 @@ def main():
     parser.add_argument("campaign", type=Path)
     args = parser.parse_args()
     campaign = args.campaign.resolve()
+    algorithms = list(BASE_ALGORITHMS)
+    for algorithm in OPTIONAL_ALGORITHMS:
+        run_files = [campaign / f"shift{shifts}" / algorithm / f"{layout}-{initial}" / "run.json"
+                     for shifts in CONDITIONS for layout, initial in BLOCKS]
+        if any(path.exists() for path in run_files):
+            if not all(path.exists() for path in run_files):
+                raise ValueError(f"{algorithm} has incomplete WindShift conditions")
+            algorithms.append(algorithm)
     data = {shifts: {algorithm: load_condition(campaign, shifts, algorithm)
-                     for algorithm in ALGORITHMS} for shifts in CONDITIONS}
+                     for algorithm in algorithms} for shifts in CONDITIONS}
     before_first_shift = STEPS < 20000
-    for algorithm in ALGORITHMS:
+    for algorithm in algorithms:
         for seed in range(20):
             for key in ("success_rate", "reward_sum", "pit_rate"):
                 for shifts in (2, 4):
@@ -162,15 +194,15 @@ def main():
                         data[shifts][algorithm][seed][key][before_first_shift],
                     )
     summary = {str(shifts): {algorithm: score_condition(data[shifts][algorithm], shifts)
-                             for algorithm in ALGORITHMS} for shifts in CONDITIONS}
+                             for algorithm in algorithms} for shifts in CONDITIONS}
     for shifts in (2, 4):
-        for algorithm in ALGORITHMS:
+        for algorithm in algorithms:
             shifted = np.asarray(summary[str(shifts)][algorithm]["per_seed_post20k_success_auc"])
             stationary = np.asarray(summary["0"][algorithm]["per_seed_post20k_success_auc"])
             summary[str(shifts)][algorithm]["delta_vs_stationary"] = mean_sd(shifted - stationary)
     (campaign / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    render(campaign, summary)
-    plot(campaign, summary)
+    render(campaign, summary, algorithms)
+    plot(campaign, summary, algorithms)
     print(campaign / "report.md")
 
 

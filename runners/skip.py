@@ -34,6 +34,7 @@ class SkipRunConfig(DDQNRunConfig):
     eval_epsilon_cutoff: float = 1.
     eval_learning_rate: float | None = None
     rare_q_mode: str = "separate"
+    separate_target_epsilon_source: str = "evaluation"
     shared_target_epsilon_source: str = "behavior"
 
     def __post_init__(self):
@@ -44,6 +45,10 @@ class SkipRunConfig(DDQNRunConfig):
             raise ValueError("rare_q_mode must be 'separate' or 'shared'")
         if self.algorithm != "RARe" and self.rare_q_mode != "separate":
             raise ValueError("rare_q_mode='shared' requires RARe")
+        if self.separate_target_epsilon_source not in ("behavior", "evaluation"):
+            raise ValueError("separate_target_epsilon_source must be 'behavior' or 'evaluation'")
+        if self.separate_target_epsilon_source != "evaluation" and (self.algorithm != "RARe" or self.rare_q_mode != "separate"):
+            raise ValueError("separate_target_epsilon_source='behavior' requires separate RARe")
         if self.shared_target_epsilon_source not in ("behavior", "evaluation"):
             raise ValueError("shared_target_epsilon_source must be 'behavior' or 'evaluation'")
         if self.shared_target_epsilon_source != "behavior" and (self.algorithm != "RARe" or self.rare_q_mode != "shared"):
@@ -142,8 +147,9 @@ class SkipRunner(DDQNRunner):
         )
 
     def _evaluation_epsilon(self, steps):
-        # Shared RARe uses the behavior policy; Separate retains its pi_e.
-        if self.config.rare_q_mode == "shared" and self.config.shared_target_epsilon_source == "behavior":
+        source = (self.config.separate_target_epsilon_source if self.config.rare_q_mode == "separate"
+                  else self.config.shared_target_epsilon_source)
+        if source == "behavior":
             return self._epsilon(steps)
         duration = max(self.config.total_steps - self.config.warmup_steps, 1)
         progress = jnp.clip((steps - self.config.warmup_steps) /

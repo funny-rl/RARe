@@ -16,7 +16,7 @@ from diagnostics.auc import auc_statistics, grid_reward_ceiling, normalize_rewar
 
 
 ALGORITHMS = ("DDQN", "TempoRL", "UTE", "RARe-sh", "RARe-se")
-SUPPORTED_ALGORITHMS = (*ALGORITHMS, "RARe-sh-eval", "TAACDiscrete")
+SUPPORTED_ALGORITHMS = (*ALGORITHMS, "RARe-se-behavior", "RARe-sh-eval", "TAACDiscrete")
 
 
 def _integer(value, name):
@@ -32,7 +32,8 @@ def _algorithm(metadata):
         if mode not in ("shared", "separate"):
             raise ValueError(f"unknown RARe mode: {mode}")
         if mode == "separate":
-            return "RARe-se"
+            return ("RARe-se-behavior" if metadata["config"].get("separate_target_epsilon_source") == "behavior"
+                    else "RARe-se")
         return ("RARe-sh-eval" if metadata["config"].get("shared_target_epsilon_source") == "evaluation"
                 else "RARe-sh")
     if algorithm not in SUPPORTED_ALGORITHMS:
