@@ -246,10 +246,10 @@ tests/         unit tests and short end-to-end runs
 ## Citation
 
 ```bibtex
-@inproceedings{park2026rare,
+@inproceedings{rare2026,
   title     = {Risk-Aware Action Repetition via Expected Skip Evaluation},
-  author    = {Park, Hyunwoo and Eom, Joonhyeok and Seong, Baek-Ryun and Ko, Sang-Ki},
-  booktitle = {Advances in Neural Information Processing Systems},
+  author    = {Hyunwoo Park and Joonhyeok Eom and Baek-Ryun Seong and Sang-Ki Ko},
+  booktitle = {Advances in Neural Information Processing Systems (NeurIPS 2026)},
   year      = {2026}
 }
 ```
