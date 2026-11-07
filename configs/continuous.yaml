@@ -1,0 +1,59 @@
+# Continuous environments (paper Tables 9, 10).
+common:
+  batch_size: 64
+  gamma: 0.99
+  learning_rate: 0.001
+  tau: 0.005
+  exploration_noise: 0.1
+  mc_samples: 30
+  taac_temperature: 0.1
+  target_entropy_delta: 0.05
+  compare_horizon: 3
+
+seeds: "0:20"
+
+arms:
+  DDPG: {algorithm: DDPG}
+  TAAC: {algorithm: TAAC}
+  TempoRL: {algorithm: TempoRL}
+  UTE: {algorithm: UTE, ensemble_size: 10, ute_adaptive_lambda: true}
+  RARe-sh: {algorithm: RARe, rare_q_mode: shared}
+  RARe-se: {algorithm: RARe, rare_q_mode: separate}
+
+environments:
+  MountainCar:
+    common: {total_steps: 50000, warmup_steps: 5000, replay_capacity: 50000, skip_replay_capacity: 120000,
+             hidden_dim: 64, max_skip: 10, use_lr_decay: false, exploration_decay_steps: 45000,
+             skip_epsilon_decay_steps: 45000}
+    rare_se: {max_eval_sigma: 0.1, min_eval_sigma: 0.001}
+    evaluation: {interval_steps: 250, episodes: 5}
+  PointMaze:
+    common: {total_steps: 200000, warmup_steps: 5000, replay_capacity: 200000, skip_replay_capacity: 305000,
+             hidden_dim: 128, max_skip: 10, use_lr_decay: false, skip_epsilon_decay_steps: 100000}
+    rare_se: {max_eval_sigma: 0.2, min_eval_sigma: 0.0}
+    evaluation: {interval_steps: 1000, episodes: 4}
+  Goal:
+    safety: true
+    seed_shards: ["0:5", "5:10", "10:15", "15:20"]
+    common: {total_steps: 52000, warmup_steps: 2000, replay_capacity: 52000, skip_replay_capacity: 100000,
+             hidden_dim: 64, max_skip: 5, use_lr_decay: false, skip_epsilon_decay_steps: 50000}
+    rare_se: {max_eval_sigma: 0.05, min_eval_sigma: 0.005}
+    evaluation: {interval_steps: 1000, episodes: 1, host_loop: true}
+  Button:
+    safety: true
+    seed_shards: ["0:5", "5:10", "10:15", "15:20"]
+    common: {total_steps: 65000, warmup_steps: 5000, replay_capacity: 65000, skip_replay_capacity: 120000,
+             hidden_dim: 64, max_skip: 5, use_lr_decay: false, skip_epsilon_decay_steps: 60000}
+    rare_se: {max_eval_sigma: 0.02, min_eval_sigma: 0.0}
+    evaluation: {interval_steps: 1200, episodes: 1}
+  Pendulum:
+    common: {total_steps: 17000, warmup_steps: 2000, replay_capacity: 17000, skip_replay_capacity: 50000,
+             hidden_dim: 64, max_skip: 10, use_lr_decay: true}
+    rare_se: {max_eval_sigma: 0.05, min_eval_sigma: 0.001}
+    evaluation: {interval_steps: 150, episodes: 5}
+  HalfCheetah:
+    seeds: "0:3"
+    common: {total_steps: 3000000, warmup_steps: 50000, replay_capacity: 100000, skip_replay_capacity: 300000,
+             hidden_dim: 256, max_skip: 5, use_lr_decay: false}
+    rare_se: {max_eval_sigma: 0.05, min_eval_sigma: 0.001}
+    evaluation: {interval_steps: 5000, episodes: 3}

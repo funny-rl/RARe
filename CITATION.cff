@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use this code, please cite the paper."
+title: "Risk-Aware Action Repetition via Expected Skip Evaluation"
+authors:
+  - family-names: Park
+    given-names: Hyunwoo
+  - family-names: Eom
+    given-names: Joonhyeok
+  - family-names: Seong
+    given-names: Baek-Ryun
+  - family-names: Ko
+    given-names: Sang-Ki
+preferred-citation:
+  type: conference-paper
+  title: "Risk-Aware Action Repetition via Expected Skip Evaluation"
+  authors:
+    - family-names: Park
+      given-names: Hyunwoo
+    - family-names: Eom
+      given-names: Joonhyeok
+    - family-names: Seong
+      given-names: Baek-Ryun
+    - family-names: Ko
+      given-names: Sang-Ki
+  collection-title: "Advances in Neural Information Processing Systems"
+  year: 2026
+license: Apache-2.0

@@ -1,0 +1,28 @@
+# Safety-Gymnasium simulator process for Goal and Button. Training itself runs in `rare`.
+name: rare-safety
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - absl-py==2.5.1
+      - cloudpickle==3.1.2
+      - farama-notifications==0.0.6
+      - glfw==2.10.2
+      - gymnasium==0.28.1
+      - gymnasium-robotics==1.2.2
+      - imageio==2.38.0
+      - jax-jumpy==1.0.0
+      - jinja2==3.1.6
+      - markupsafe==3.0.4
+      - mujoco==2.3.3
+      - numpy==1.23.5
+      - pettingzoo==1.24.3
+      - pillow==12.3.0
+      - pygame==2.1.0
+      - pyopengl==3.1.10
+      - pyyaml==6.0.3
+      - safety-gymnasium==1.0.0
+      - typing-extensions==4.16.0
+      - xmltodict==1.0.4

@@ -1,0 +1,17 @@
+# HalfCheetah only: Brax 0.10.3 needs an older MuJoCo than PointMaze in `rare`.
+name: rare-halfcheetah
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - jax[cuda12]==0.4.38
+      - flax==0.10.4
+      - optax==0.2.5
+      - numpy==1.26.4
+      - scipy==1.12.0
+      - pyyaml
+      - brax==0.10.3
+      - mujoco==3.1.3
+      - mujoco-mjx==3.1.3

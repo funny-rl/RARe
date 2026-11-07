@@ -1,0 +1,65 @@
+# Fixed and randomized Grid environments (paper Tables 8, 10, 11).
+common:
+  batch_size: 64
+  hidden_dim: 64
+  gamma: 0.99
+  learning_rate: 0.001
+  max_epsilon: 1.0
+  min_epsilon: 0.0
+  use_lr_decay: true
+  tau: 0.005
+
+evaluation:
+  interval_fraction: 0.01
+  risk: true
+  decision_traces: true
+
+seeds: "0:20"
+
+arms:
+  DDQN: {algorithm: DDQN}
+  TempoRL: {algorithm: TempoRL}
+  UTE: {algorithm: UTE, ensemble_size: 10}
+  RARe-sh: {algorithm: RARe, rare_q_mode: shared}
+  RARe-se: {algorithm: RARe, rare_q_mode: separate}
+  # TD-backup ablation (Table 11): action backup and skip backup, G greedy, E expected.
+  RARe-sh-AE-SG: {algorithm: RARe, rare_q_mode: shared, action_target_mode: expected, skip_target_mode: greedy}
+  RARe-sh-AE-SE: {algorithm: RARe, rare_q_mode: shared, action_target_mode: expected}
+  RARe-se-AE-SG: {algorithm: RARe, rare_q_mode: separate, action_target_mode: expected, skip_target_mode: greedy}
+  RARe-se-AE-SE: {algorithm: RARe, rare_q_mode: separate, action_target_mode: expected}
+  RARe-se-AG-SG: {algorithm: RARe, rare_q_mode: separate, skip_target_mode: greedy}
+
+skip_defaults:
+  max_skip: 6
+
+environments:
+  CliffWalking:
+    layout: CliffWalking
+    random: false
+    common: {total_steps: 15000, warmup_steps: 2000, replay_capacity: 15000, skip_replay_capacity: 45000}
+    rare_se: {max_eval_epsilon: 0.2, min_eval_epsilon: 0.01, eval_epsilon_cutoff: 0.5}
+  Bridge:
+    layout: Bridge
+    random: false
+    common: {total_steps: 40000, warmup_steps: 3000, replay_capacity: 40000, skip_replay_capacity: 120000}
+    rare_se: {max_eval_epsilon: 0.2, min_eval_epsilon: 0.01, eval_epsilon_cutoff: 1.0}
+  ZigZag:
+    layout: ZigZag
+    random: false
+    common: {total_steps: 50000, warmup_steps: 3000, replay_capacity: 50000, skip_replay_capacity: 150000}
+    rare_se: {max_eval_epsilon: 0.3, min_eval_epsilon: 0.01, eval_epsilon_cutoff: 0.5}
+  RCliffWalking:
+    layout: CliffWalking
+    random: true
+    common: {total_steps: 50000, warmup_steps: 2000, replay_capacity: 50000, skip_replay_capacity: 150000}
+    rare_se: {max_eval_epsilon: 0.1, min_eval_epsilon: 0.01, eval_epsilon_cutoff: 1.0}
+  RBridge:
+    layout: Bridge
+    random: true
+    common: {total_steps: 150000, warmup_steps: 3000, replay_capacity: 100000, skip_replay_capacity: 300000}
+    rare_se: {max_eval_epsilon: 0.2, min_eval_epsilon: 0.01, eval_epsilon_cutoff: 1.0}
+  RZigZag:
+    layout: ZigZag
+    random: true
+    common: {total_steps: 200000, warmup_steps: 3000, replay_capacity: 100000, skip_replay_capacity: 300000}
+    rare_se: {max_eval_epsilon: 0.2, min_eval_epsilon: 0.01, eval_epsilon_cutoff: 1.0}

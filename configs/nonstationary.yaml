@@ -1,0 +1,37 @@
+# Non-stationary Grid environments (paper Tables 6, 7, 10).
+common:
+  total_steps: 40000
+  warmup_steps: 2000
+  replay_capacity: 40000
+  skip_replay_capacity: 120000
+  batch_size: 64
+  hidden_dim: 64
+  gamma: 0.99
+  learning_rate: 0.001
+  max_epsilon: 1.0
+  min_epsilon: 0.05
+  epsilon_decay_steps: 18000
+  use_lr_decay: false
+  tau: 0.005
+
+evaluation:
+  interval_steps: 1000
+  episodes: 20
+  risk: false
+  decision_traces: false
+
+arms:
+  UTE: {algorithm: UTE, ensemble_size: 5}
+  RARe-sh: {algorithm: RARe, rare_q_mode: shared}
+  RARe-se: {algorithm: RARe, rare_q_mode: separate, max_eval_epsilon: 0.3, min_eval_epsilon: 0.1}
+
+skip_defaults:
+  max_skip: 6
+
+environments:
+  WindShift: {preset: WindyGoalTransition, shift_steps: [20000], seeds: "100:120"}
+  Random: {preset: WindyGoalRandomStrong, shift_steps: [20000], seeds: "100:120"}
+  Episodic: {preset: WindyGoalResponsive, shift_steps: [20000], seeds: "100:120"}
+  Shift1: {preset: WindyGoalTransitionFrequency, shift_steps: [20000], seeds: "120:130"}
+  Shift3: {preset: WindyGoalTransitionFrequency, shift_steps: [20000, 27000, 33000], seeds: "120:130"}
+  Shift5: {preset: WindyGoalTransitionFrequency, shift_steps: [20000, 24000, 28000, 32000, 36000], seeds: "120:130"}

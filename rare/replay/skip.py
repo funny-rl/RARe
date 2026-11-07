@@ -1,0 +1,206 @@
+"""Skip replay with equal-return labels beyond episode completion."""
+
+from typing import NamedTuple
+
+import jax
+import jax.numpy as jnp
+from jax.experimental import checkify
+
+from .codec import decode_observation, encode_observation, storage_spec
+
+
+class SkipSegment(NamedTuple):
+    """One fixed-shape repeat: observations (J+1, ...), rewards and end flags (J,).
+
+    Only the first executed_steps transitions are real; later entries are padding."""
+
+    observations: jax.Array
+    action: jax.Array
+    rewards: jax.Array
+    terminated: jax.Array
+    truncated: jax.Array
+    selected_skip: jax.Array
+    executed_steps: jax.Array
+
+
+class SkipBatch(NamedTuple):
+    """Replay arrays with one leading axis.
+
+    skips is the trained output head and executed_steps counts this record's interactions;
+    selected_skips and segment_steps describe the collected repeat."""
+
+    observations: jax.Array
+    actions: jax.Array
+    skips: jax.Array
+    returns: jax.Array
+    discounts: jax.Array
+    next_observations: jax.Array
+    terminated: jax.Array
+    truncated: jax.Array
+    selected_skips: jax.Array
+    segment_steps: jax.Array
+    executed_steps: jax.Array
+
+
+class SkipReplayState(NamedTuple):
+    """One experiment's skip storage and scalar int32 cursor/count."""
+
+    data: SkipBatch
+    write_index: jax.Array
+    size: jax.Array
+
+
+def init_skip_replay(capacity: int, obs_shape: tuple[int, ...], *, observation_dtype=jnp.float32,
+                     observation_codec="raw", action_shape: tuple[int, ...] = (),
+                     action_dtype=jnp.int32) -> SkipReplayState:
+    """Allocate skip replay; uint8 observations require exact integral encodings."""
+    if type(capacity) is not int or capacity <= 0:
+        raise ValueError("capacity must be a positive Python integer")
+    if (not isinstance(obs_shape, tuple) or not obs_shape
+            or any(type(size) is not int or size <= 0 for size in obs_shape)):
+        raise ValueError("obs_shape must be a nonempty tuple of positive Python integers")
+    storage_shape, observation_dtype = storage_spec(obs_shape, observation_dtype, observation_codec)
+    if not isinstance(action_shape, tuple) or any(type(n) is not int or n <= 0 for n in action_shape):
+        raise ValueError("action_shape must contain positive dimensions")
+    return SkipReplayState(
+        data=SkipBatch(
+            observations=jnp.zeros((capacity, *storage_shape), dtype=observation_dtype),
+            actions=jnp.zeros((capacity, *action_shape), dtype=action_dtype),
+            skips=jnp.zeros(capacity, dtype=jnp.int32),
+            returns=jnp.zeros(capacity, dtype=jnp.float32),
+            discounts=jnp.zeros(capacity, dtype=jnp.float32),
+            next_observations=jnp.zeros((capacity, *storage_shape), dtype=observation_dtype),
+            terminated=jnp.zeros(capacity, dtype=jnp.bool_),
+            truncated=jnp.zeros(capacity, dtype=jnp.bool_),
+            selected_skips=jnp.zeros(capacity, dtype=jnp.int32),
+            segment_steps=jnp.zeros(capacity, dtype=jnp.int32),
+            executed_steps=jnp.zeros(capacity, dtype=jnp.int32),
+        ),
+        write_index=jnp.asarray(0, dtype=jnp.int32),
+        size=jnp.asarray(0, dtype=jnp.int32),
+    )
+
+
+def _require(condition: jax.Array, message: str) -> None:
+    """Check concrete inputs eagerly and expose compiled checks to checkify."""
+    if not isinstance(condition, jax.core.Tracer) and not bool(condition):
+        raise ValueError(message)
+    checkify.debug_check(condition, message)
+
+
+def add_skip_segment(
+    state: SkipReplayState,
+    segment: SkipSegment,
+    gamma: jax.Array,
+    *,
+    observation_codec="raw",
+    observation_dim=None,
+) -> SkipReplayState:
+    """Insert a repeat and its skip labels, treating the episode time limit as absorbing.
+
+    Every contiguous sub-segment becomes a record. At an episode end, labels extend through the
+    selected duration with no extra reward and a zero bootstrap discount."""
+    observations = jnp.asarray(segment.observations, dtype=jnp.float32)
+    rewards = jnp.asarray(segment.rewards, dtype=jnp.float32)
+    terminated = jnp.asarray(segment.terminated, dtype=jnp.bool_)
+    truncated = jnp.asarray(segment.truncated, dtype=jnp.bool_)
+    action = jnp.asarray(segment.action)
+    selected = jnp.asarray(segment.selected_skip)
+    executed = jnp.asarray(segment.executed_steps)
+    gamma = jnp.asarray(gamma, dtype=jnp.float32)
+    if rewards.ndim != 1 or rewards.shape[0] < 1:
+        raise ValueError("segment rewards must have shape (J,) with J >= 1")
+    max_skip = rewards.shape[0]
+    expected_shape = (max_skip + 1, *state.data.observations.shape[1:])
+    if observation_codec == "grid_indices":
+        if type(observation_dim) is not int or observation_dim <= 0:
+            raise ValueError("grid_indices requires a positive observation_dim")
+        expected_shape = (max_skip + 1, observation_dim)
+    if observations.shape != expected_shape:
+        raise ValueError("segment observations must have shape (J+1, *obs_shape)")
+    if terminated.shape != rewards.shape or truncated.shape != rewards.shape:
+        raise ValueError("segment end flags must have shape (J,)")
+    action_shape = state.data.actions.shape[1:]
+    if action.shape != action_shape or action.dtype.kind != state.data.actions.dtype.kind:
+        raise ValueError(f"action must have shape {action_shape} and match storage dtype kind")
+    for name, value in (("selected_skip", selected), ("executed_steps", executed)):
+        if value.shape != () or not jnp.issubdtype(value.dtype, jnp.integer):
+            raise ValueError(f"{name} must be a scalar integer")
+    if gamma.shape != ():
+        raise ValueError("gamma must be scalar")
+    action = action.astype(state.data.actions.dtype)
+    selected, executed = (x.astype(jnp.int32) for x in (selected, executed))
+    _require((selected >= 1) & (selected <= max_skip), "selected_skip must lie in [1, J]")
+    _require((executed >= 1) & (executed <= selected), "executed_steps must lie in [1, selected_skip]")
+    _require(jnp.isfinite(gamma) & (gamma >= 0) & (gamma <= 1), "gamma must lie in [0, 1]")
+    times = jnp.arange(max_skip)
+    _require(
+        ~jnp.any((terminated | truncated) & (times < executed - 1)),
+        "a segment cannot contain real transitions after an episode end",
+    )
+    _require(
+        jnp.all(jnp.isfinite(jnp.where(times < executed, rewards, 0.0))),
+        "real rewards must be finite",
+    )
+
+    # End-major order preserves the original subsegment insertion order.
+    end_rows, starts = jnp.tril_indices(max_skip)
+    ends = end_rows + 1
+    actual_ends = jnp.minimum(ends, executed)
+    actual_steps = jnp.maximum(actual_ends - starts, 0)
+    final_done = terminated[executed - 1] | truncated[executed - 1]
+    valid = (starts < executed) & (ends <= selected)
+    valid &= (ends <= executed) | final_done
+
+    # Gather the same accumulated return for every equivalent episode-end label.
+    # No division by gamma is needed, including when gamma is zero.
+    offsets = times[None, :] - times[:, None]
+    weights = jnp.where(offsets >= 0, gamma ** jnp.maximum(offsets, 0), 0.0)
+    real_rewards = jnp.where(times < executed, rewards, 0.0)
+    return_table = jnp.cumsum(weights * real_rewards[None, :], axis=1)
+    record_terminated = terminated[actual_ends - 1]
+    record_truncated = truncated[actual_ends - 1]
+    records = SkipBatch(
+        observations=encode_observation(observations[starts], observation_codec),
+        actions=jnp.broadcast_to(action, (ends.shape[0], *action_shape)),
+        skips=(ends - starts).astype(jnp.int32),
+        returns=return_table[starts, actual_ends - 1],
+        discounts=jnp.where(record_terminated | record_truncated, 0.0, gamma ** actual_steps),
+        next_observations=encode_observation(observations[actual_ends], observation_codec),
+        terminated=record_terminated,
+        truncated=record_truncated,
+        selected_skips=jnp.full(ends.shape, selected, dtype=jnp.int32),
+        segment_steps=jnp.full(ends.shape, executed, dtype=jnp.int32),
+        executed_steps=actual_steps.astype(jnp.int32),
+    )
+
+    ranks = jnp.cumsum(valid.astype(jnp.int32)) - 1
+    count = jnp.sum(valid, dtype=jnp.int32)
+    capacity = state.data.actions.shape[0]
+    # Keep only the final capacity accepted records, so scatter writes have
+    # no duplicate in-bounds indices even when one segment exceeds capacity.
+    keep = valid & (ranks >= count - capacity)
+    indices = jnp.where(keep, (state.write_index + ranks) % capacity, capacity)
+    data = jax.tree.map(
+        lambda storage, values: storage.at[indices].set(values.astype(storage.dtype), mode="drop"),
+        state.data, records,
+    )
+    return SkipReplayState(
+        data=data,
+        write_index=(state.write_index + count) % capacity,
+        size=jnp.minimum(state.size + count, capacity),
+    )
+
+
+def sample_skip_batch(key: jax.Array, state: SkipReplayState, batch_size: int, *,
+                      observation_codec="raw", observation_dim=None) -> SkipBatch:
+    """Sample uniformly with replacement; the replay must not be empty."""
+    if type(batch_size) is not int or batch_size <= 0:
+        raise ValueError("batch_size must be a positive Python integer")
+    _require(state.size > 0, "cannot sample an empty skip replay")
+    indices = jax.random.randint(key, (batch_size,), 0, state.size)
+    sampled = jax.tree.map(lambda storage: storage[indices], state.data)
+    return sampled._replace(
+        observations=decode_observation(sampled.observations, observation_codec, observation_dim),
+        next_observations=decode_observation(sampled.next_observations, observation_codec, observation_dim),
+    )
