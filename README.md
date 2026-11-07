@@ -8,6 +8,7 @@ University of Seoul
 
 *NeurIPS 2026*
 
+[![Paper](https://img.shields.io/badge/paper-PDF-b31b1b)](assets/RARe_NeurIPS2026.pdf)
 ![NeurIPS 2026](https://img.shields.io/badge/NeurIPS-2026-4b44ce)
 ![Python 3.11](https://img.shields.io/badge/python-3.11-3776ab)
 ![JAX 0.4.38](https://img.shields.io/badge/JAX-0.4.38-a259ff)
@@ -241,6 +242,7 @@ experiments/   command-line entry points
 paper/         tables and figures
 tools/         cost measurement and HalfCheetah reference scores
 tests/         unit tests and short end-to-end runs
+assets/        paper PDF and the Grid environment figure
 ```
 
 ## Citation
